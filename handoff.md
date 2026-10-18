@@ -67,7 +67,7 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - [x] 1.3 [YOU] Open LangSmith, find the trace, screenshot.
 
 ### Phase 2 — Real state & schemas
-- [ ] 2.1 [CLAUDE] `ArenaState` TypedDict + Pydantic models (Evidence, Proposal, Criticism, Score, Verdict, Report).
+- [x] 2.1 [CLAUDE] `ArenaState` (`state.py`) + Pydantic models (`schemas.py`) + `scripts/schemas_demo.py`.
 - [ ] 2.2 [CLAUDE] Config (limits, rubric weights, model name) via pydantic-settings.
 
 ### Phase 3 — Intake + Clarification (human-in-the-loop)
@@ -118,6 +118,9 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - 2026-10-18: Default model `claude-sonnet-5-5` (configurable via `ANTHROPIC_MODEL`).
 - 2026-10-18: Manual testing only, no automated test suite.
 - 2026-10-18: Always read Claude replies with `reply.text`, NOT `reply.content` (Sonnet 5.5 returns a list incl. a `thinking` block). Structured output (Phase 3+) avoids this anyway.
+- 2026-10-18: State stores nested items as plain dicts (`model_dump(mode="json")`); nodes re-validate with `Model.model_validate`. Each state field has one owner node (see comments in `state.py`).
+- 2026-10-18: Judge gives 0–10 criterion scores; `weighted_total` is computed in Python from config weights (don't trust LLM math).
+- 2026-10-18: IDs: evidence `ev_001`, solutions `sol_a`/`sol_b`/`sol_c` (regex-validated).
 - 2026-10-18: Backend uses uv "src layout": code in `backend/src/ai_decision_arena/`; `.env` lives in `backend/`.
 
 ## Open questions for user
@@ -132,6 +135,8 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - 2026-10-18: Phase 0 committed by user. 1.1 done: `backend/scripts/hello_graph.py` (State, 2 nodes, edges, ASCII/Mermaid/PNG print). Added `grandalf` dep (needed for draw_ascii). PNG goes to `backend/hello_graph.png` (gitignored).
 - 2026-10-18: 1.1 verified by user + committed. 1.2 written: `backend/scripts/claude_graph.py` (prepare → ask_claude, System/Human messages, run_name+metadata for LangSmith).
 - 2026-10-18: 1.2/1.3 verified + committed. Fixed bug: answer showed raw content blocks → use `reply.text`.
+- 2026-10-18: reply.text fix verified + committed. 2.1 done: `src/ai_decision_arena/schemas.py`, `state.py`, `scripts/schemas_demo.py`.
+- 2026-10-18: `state.py`: `status` typed as `WorkflowStatus`, `human_action` as `HumanAction` (editor hints only, no runtime check).
 
 ## ▶ Next step
-**[YOU]** re-run `claude_graph.py` to confirm clean answer, commit. Then **2.1 [CLAUDE]** ArenaState + Pydantic models.
+**2.1 [YOU]** run `uv run python scripts/schemas_demo.py`, commit. Then **2.2 [CLAUDE]** `config.py` (pydantic-settings: model, loop limits, rubric weights, research limits).
