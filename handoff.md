@@ -62,7 +62,7 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - [x] 0.4 [CLAUDE] `scripts/check_env.py` pings Claude/Tavily/LangSmith. [YOU] ran it — first trace visible in LangSmith.
 
 ### Phase 1 — LangGraph basics (learning)
-- [ ] 1.1 [CLAUDE] "Hello graph": tiny State + 2 dummy nodes, run it, **print graph** (ASCII + Mermaid PNG).
+- [x] 1.1 [CLAUDE] "Hello graph": tiny State + 2 dummy nodes, run it, **print graph** (ASCII + Mermaid PNG).
 - [ ] 1.2 [CLAUDE] One node calls Claude. [YOU] run it.
 - [ ] 1.3 [YOU] Open LangSmith, find the trace, screenshot.
 
@@ -128,6 +128,7 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - 2026-10-18: Step 0.2 done — `.gitignore`, `docs/requirements.md`, `backend/` uv project (deps: langgraph, langchain-anthropic, langsmith, tavily-python, pydantic-settings), `.env.example`, `.env` with empty values.
 - 2026-10-18: 0.3 done (keys set, uv sync OK, .env confirmed ignored). 0.4 script written: `backend/scripts/check_env.py`; added python-dotenv dep.
 - 2026-10-18: Phase 0 done. Claude (claude-sonnet-5-5) call traced in LangSmith project `ai-decision-arena` (24 tokens).
+- 2026-10-18: Phase 0 committed by user. 1.1 done: `backend/scripts/hello_graph.py` (State, 2 nodes, edges, ASCII/Mermaid/PNG print). Added `grandalf` dep (needed for draw_ascii). PNG goes to `backend/hello_graph.png` (gitignored).
 
 ## ▶ Next step
-**1.1 [CLAUDE]** Hello graph: tiny State + 2 dummy nodes, run it, print graph (ASCII + Mermaid PNG).
+**1.1 [YOU]** Run `uv run python scripts/hello_graph.py`, open the PNG + LangSmith trace, screenshot. Then **1.2 [CLAUDE]** one node calls Claude.
