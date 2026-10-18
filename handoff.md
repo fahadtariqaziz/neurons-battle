@@ -155,6 +155,7 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - 2026-10-18: User run of 3.3 exposed bug (no questions asked, no assumptions). Fixed: required list fields + validator + `clarification_reason` in state + assumption fallback. Probe: 3/3 runs now ask 4 questions.
 - 2026-10-18: 3.3 verified by user (2 runs, skip handling, LangSmith Threads Turn1/Turn2). Prompt tweak: one topic per clarification question (compound Qs gave ambiguous answers).
 - 2026-10-18: Phase 3 committed. 4.1 done: 28-29 unique hits from 6 queries; fixed community labeling (path hints) + Reddit retrieval (restrict mode).
+- 2026-10-18: 4.1 verified + committed by user (30 hits, 4 Reddit threads). Small fix after: Tavily client no longer a traced function argument (cached `_client()`).
 
 ## ▶ Next step
-**4.1 [YOU]** run `uv run python scripts/run_research_plan.py`, check LangSmith `tavily_search` tool runs, commit. Then **4.2 [CLAUDE]** evidence extraction (Claude → Evidence records) + `nodes/research.py` wired into graph.
+**[YOU]** commit small fix. Then **4.2 [CLAUDE]** evidence extraction (Claude → Evidence records) + `nodes/research.py` wired into graph.

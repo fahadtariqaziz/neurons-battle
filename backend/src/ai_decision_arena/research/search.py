@@ -6,6 +6,7 @@
 """
 
 import time
+from functools import lru_cache
 
 import tavily.errors as tavily_errors
 from langsmith import traceable
@@ -25,12 +26,14 @@ PERMANENT_ERRORS = (
 MAX_SNIPPET_CHARS = 2000
 
 
+@lru_cache
 def _client() -> TavilyClient:
+    """Created once; kept out of function arguments so it never appears in traces."""
     return TavilyClient(api_key=get_settings().tavily_api_key.get_secret_value())
 
 
 @traceable(run_type="tool", name="tavily_search")   # shows each search in LangSmith
-def search_one(client: TavilyClient, q: SearchQuery) -> list[SearchHit]:
+def search_one(q: SearchQuery) -> list[SearchHit]:
     """One Tavily call with bounded retries. Raises on final failure."""
     settings = get_settings()
     kwargs = {
@@ -47,7 +50,7 @@ def search_one(client: TavilyClient, q: SearchQuery) -> list[SearchHit]:
 
     for attempt in range(settings.search_max_retries + 1):
         try:
-            response = client.search(q.query, **kwargs)
+            response = _client().search(q.query, **kwargs)
             break
         except PERMANENT_ERRORS:
             raise
@@ -76,14 +79,13 @@ def search_one(client: TavilyClient, q: SearchQuery) -> list[SearchHit]:
 def run_searches(queries: list[SearchQuery]) -> tuple[list[SearchHit], list[SearchFailure]]:
     """Run up to max_search_queries queries. Returns (unique hits, failures)."""
     settings = get_settings()
-    client = _client()
     hits: list[SearchHit] = []
     failures: list[SearchFailure] = []
     seen: set[str] = set()
 
     for q in queries[: settings.max_search_queries]:
         try:
-            results = search_one(client, q)
+            results = search_one(q)
         except Exception as exc:
             failures.append(SearchFailure(
                 query=q.query,
