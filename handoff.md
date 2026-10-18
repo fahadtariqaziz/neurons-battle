@@ -68,7 +68,7 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 
 ### Phase 2 — Real state & schemas
 - [x] 2.1 [CLAUDE] `ArenaState` (`state.py`) + Pydantic models (`schemas.py`) + `scripts/schemas_demo.py`.
-- [ ] 2.2 [CLAUDE] Config (limits, rubric weights, model name) via pydantic-settings.
+- [x] 2.2 [CLAUDE] `config.py` (`get_settings()`): model, LLM limits, loop limits, research limits, rubric weights (validated to sum 1.0). Demo: `scripts/config_demo.py`.
 
 ### Phase 3 — Intake + Clarification (human-in-the-loop)
 - [ ] 3.1 [CLAUDE] Intake node (structured output from Claude).
@@ -121,6 +121,7 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - 2026-10-18: State stores nested items as plain dicts (`model_dump(mode="json")`); nodes re-validate with `Model.model_validate`. Each state field has one owner node (see comments in `state.py`).
 - 2026-10-18: Judge gives 0–10 criterion scores; `weighted_total` is computed in Python from config weights (don't trust LLM math).
 - 2026-10-18: IDs: evidence `ev_001`, solutions `sol_a`/`sol_b`/`sol_c` (regex-validated).
+- 2026-10-18: All settings via `get_settings()` from `config.py`; importing it also runs `load_dotenv` so LangChain/LangSmith see keys. API keys are `SecretStr` (masked when printed).
 - 2026-10-18: Backend uses uv "src layout": code in `backend/src/ai_decision_arena/`; `.env` lives in `backend/`.
 
 ## Open questions for user
@@ -137,6 +138,7 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - 2026-10-18: 1.2/1.3 verified + committed. Fixed bug: answer showed raw content blocks → use `reply.text`.
 - 2026-10-18: reply.text fix verified + committed. 2.1 done: `src/ai_decision_arena/schemas.py`, `state.py`, `scripts/schemas_demo.py`.
 - 2026-10-18: `state.py`: `status` typed as `WorkflowStatus`, `human_action` as `HumanAction` (editor hints only, no runtime check).
+- 2026-10-18: 2.1 committed. 2.2 done: `config.py`, `scripts/config_demo.py`, optional overrides listed in `.env.example`.
 
 ## ▶ Next step
-**2.1 [YOU]** run `uv run python scripts/schemas_demo.py`, commit. Then **2.2 [CLAUDE]** `config.py` (pydantic-settings: model, loop limits, rubric weights, research limits).
+**2.2 [YOU]** run `uv run python scripts/config_demo.py`, commit. Then **3.1 [CLAUDE]** shared LLM helper (structured output + retry) and the Intake node.
