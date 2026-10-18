@@ -68,12 +68,57 @@ HumanAction = Literal[
 
 Level = Literal["low", "medium", "high"]
 
+ProblemDomain = Literal[
+    "backend_engineering",
+    "databases",
+    "ai_ml",
+    "infrastructure_cloud",
+    "devops",
+    "security",
+    "frontend",
+    "software_architecture",
+    "other",
+]
+
 EVIDENCE_ID_PATTERN = r"^ev_\d{3,}$"   # ev_001, ev_002, ...
 SOLUTION_ID_PATTERN = r"^sol_[a-z]$"    # sol_a, sol_b, sol_c
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# Intake
+# ---------------------------------------------------------------------------
+
+class NamedValue(BaseModel):
+    """A name/value pair. Used instead of dict[str, str] because a fixed object shape
+    works more reliably with structured output; the node converts the list to a dict."""
+
+    name: str = Field(description='Short snake_case key, e.g. "expected_users", "cloud_provider".')
+    value: str = Field(description="What the user said, kept close to their wording.")
+
+
+class IntakeResult(BaseModel):
+    """Output of the Intake node: the user's problem, normalized. Nothing invented."""
+
+    is_technical_problem: bool = Field(description="False if the input is not a technical problem/decision.")
+    problem_domain: ProblemDomain
+    problem_summary: str = Field(description="One or two neutral sentences restating the problem. Do not add facts.")
+    requirements: list[NamedValue] = Field(
+        default_factory=list,
+        description="Goals and needs the user EXPLICITLY stated (features, scale, workload, etc.). Never guess.",
+    )
+    constraints: list[NamedValue] = Field(
+        default_factory=list,
+        description="Limits the user EXPLICITLY stated (budget, cloud, team skills, deadlines, existing stack).",
+    )
+    missing_information: list[str] = Field(
+        default_factory=list,
+        max_length=8,
+        description="Important unknowns that could change the recommendation.",
+    )
 
 
 # ---------------------------------------------------------------------------

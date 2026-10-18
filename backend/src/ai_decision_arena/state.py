@@ -23,7 +23,8 @@ class ArenaState(TypedDict, total=False):
     # --- problem understanding ----------------------------------------- (intake)
     question: str                        # the user's original text, never rewritten
     user_context: str                    # optional extra context from the form
-    problem_domain: str                  # e.g. "databases", "ai_ml", "infrastructure"
+    problem_domain: str                  # a ProblemDomain value, e.g. "databases"
+    problem_summary: str                 # neutral restatement (used for research queries)
     requirements: dict[str, str]         # e.g. {"workload": "read-heavy"}
     constraints: dict[str, str]          # e.g. {"cloud": "AWS", "budget": "< $200/mo"}
     missing_information: list[str]
