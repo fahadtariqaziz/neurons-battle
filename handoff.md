@@ -77,7 +77,7 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 
 ### Phase 4 — Research
 - [x] 4.1 [CLAUDE] `research/planner.py` (Claude → ResearchPlan), `research/search.py` (Tavily: retries, dedupe, failures, @traceable), `research/sources.py` (normalize_url, classify_source). Demo: `scripts/run_research_plan.py`.
-- [ ] 4.2 [CLAUDE] Convert results → structured Evidence records (dedupe, limits, untrusted-content handling).
+- [x] 4.2 [CLAUDE] `research/extractor.py` (Claude → ExtractionResult; Python copies URL/title from hit, assigns ev_ ids, verifies quotes) + `nodes/research.py` wired into graph (clarification → research → END). Scripts: `run_research.py` (saved state), `run_graph.py` (full interactive; replaces run_clarification.py), `demo_data.py`, `print_helpers.py`.
 
 ### Phase 5 — Debate
 - [ ] 5.1 [CLAUDE] Proposer agent.
@@ -132,6 +132,14 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - 2026-10-18: Tavily: community_experience queries use include_domains=[reddit, HN, github] with mode "restrict" (tested: "prefer" returned none). Claude-suggested official domains use "prefer" (wrong guess can't empty results).
 - 2026-10-18: Tavily permanent errors (bad key, quota, bad request) → no retry; transient → backoff 1s,2s. Failures become `SearchFailure` (evidence gap), never invented results.
 - 2026-10-18: Known for 4.2/checker: Tavily returns outdated doc versions (e.g. PostgreSQL 6.5) and vendor-biased pages; must be judged by Claude, not keyword rules. No publish dates from Tavily in general.
+- 2026-10-18: Evidence trust boundary: Claude references sources by INDEX only; Python copies url/title/date from Tavily hit, assigns ids, downgrades fake "direct quotes" to paraphrase. Unassessed sources are recorded as rejected ("not assessed"), nothing disappears silently. State has `rejected_sources`.
+- 2026-10-18: research_retry_count is incremented by the ROUTING step that sends graph back to research (Phase 5), not by research_node. Follow-up passes use verdict.required_evidence as planner focus and append evidence (ids continue).
+- 2026-10-18: Known limitations / improvement ideas: Reddit snippets from Tavily basic are often too short → rejected (consider search_depth=advanced or Tavily extract for community hits); research takes ~1:45 (consider parallel searches later).
+- 2026-10-18: `call_structured`: if stop_reason == max_tokens → retry asking for a SHORTER answer without re-sending the truncated text (found: extractor hit 12k max_tokens → retry cost 67k tokens).
+- 2026-10-18: LLM output size limits go in Field DESCRIPTIONS + Python trimming, not `max_length` (violations would trigger costly retries). Extractor sends ≤20 hits chosen round-robin across queries.
+- 2026-10-18: Debug tip: query LangSmith runs from Python (`Client().list_runs(...)`) to check prompt/completion tokens and stop_reason.
+- 2026-10-18: Tavily queries run in parallel via `langsmith.utils.ContextThreadPoolExecutor` (keeps traces nested). Research timing (before): planner 3s, searches 8s sequential, extractor 46s (80%). Deferred speedups for extractor: parallel batches or Haiku model via config — decide after full graph works.
+- 2026-10-18: Claude's offline tests (fake clients) must run with `LANGSMITH_TRACING=false` so they don't clutter the user's LangSmith project. No per-session time budget yet (add with Error Recovery, Phase 6); only per-call timeouts (Tavily 30s, Claude 90s).
 - 2026-10-18: Backend uses uv "src layout": code in `backend/src/ai_decision_arena/`; `.env` lives in `backend/`.
 
 ## Open questions for user
@@ -156,6 +164,9 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - 2026-10-18: 3.3 verified by user (2 runs, skip handling, LangSmith Threads Turn1/Turn2). Prompt tweak: one topic per clarification question (compound Qs gave ambiguous answers).
 - 2026-10-18: Phase 3 committed. 4.1 done: 28-29 unique hits from 6 queries; fixed community labeling (path hints) + Reddit retrieval (restrict mode).
 - 2026-10-18: 4.1 verified + committed by user (30 hits, 4 Reddit threads). Small fix after: Tavily client no longer a traced function argument (cached `_client()`).
+- 2026-10-18: 4.2 done: real run kept 19 / rejected 9 (incl. PG 6.5/7.2 outdated docs), vendor bias noted, 8 gaps, 1 price conflict. Polish: strip 'Paraphrase:' prefix, no 'Source N' in conflict text.
+- 2026-10-18: User run showed extractor ran twice (max_tokens truncation). Fixed → 1 call, ~19k tokens (was ~67k), ~57s (was ~142s).
+- 2026-10-18: Parallel Tavily searches (option A). Offline: 6×1s queries → 1.1s; real: tavily runs nested under parent.
 
 ## ▶ Next step
-**[YOU]** commit small fix. Then **4.2 [CLAUDE]** evidence extraction (Claude → Evidence records) + `nodes/research.py` wired into graph.
+**[YOU]** run `run_research.py`, commit Phase 4. Then **5.1 [CLAUDE]** Proposer agent.

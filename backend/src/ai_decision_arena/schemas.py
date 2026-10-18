@@ -240,6 +240,45 @@ class SearchFailure(BaseModel):
     retryable: bool
 
 
+class ExtractedEvidence(BaseModel):
+    """LLM output for one KEPT source. URL/title/date are NOT here: Python copies them from
+    the real search hit via source_index, so Claude cannot invent or alter a source."""
+
+    source_index: int = Field(ge=0, description="Index of the <source> this evidence comes from.")
+    source_type: SourceType = Field(description="Correct the given type if it is wrong.")
+    relevant_excerpt: str = Field(description="Verbatim quote from the snippet, or a faithful paraphrase. At most ~400 characters.")
+    is_direct_quote: bool = Field(description="True only if relevant_excerpt is copied word-for-word from the snippet.")
+    claims_supported: list[str] = Field(description="At most 3 short claims THIS snippet itself supports. No outside knowledge.")
+    limitations: list[str] = Field(description="At most 3 short limitations stated in the snippet. Empty list if none.")
+    community: CommunityContext | None = Field(description="Required for community_discussion/github sources; null otherwise.")
+    sentiment: Literal["positive", "negative", "mixed", "neutral"] | None = Field(
+        description="Tone toward the option discussed, for community sources; null otherwise."
+    )
+    relevance_score: float = Field(ge=0.0, le=1.0, description="How useful for THIS user's decision.")
+    reliability_notes: str = Field(description="ONE short sentence: primary source, vendor bias, old version, anecdote...")
+
+
+class RejectedSource(BaseModel):
+    source_index: int = Field(ge=0)
+    reason: str = Field(description='A few words, e.g. "irrelevant", "docs for PostgreSQL 6.5 (outdated)".')
+
+
+class ExtractedConflict(BaseModel):
+    topic: str
+    source_indexes: list[int] = Field(min_length=2)
+    description: str
+
+
+class ExtractionResult(BaseModel):
+    """LLM output of evidence extraction over a batch of search hits."""
+
+    evidence: list[ExtractedEvidence] = Field(description="Kept sources only.")
+    rejected: list[RejectedSource] = Field(description="Every source not kept, with a reason.")
+    summary: str = Field(description="Neutral summary of the kept evidence per option, at most ~150 words.")
+    evidence_gaps: list[str] = Field(description="Decision-relevant topics no kept source covers. Empty list if none.")
+    conflicting_claims: list[ExtractedConflict] = Field(description="Where kept sources disagree. Empty list if none.")
+
+
 class ConflictingClaim(BaseModel):
     """Two or more evidence records that disagree."""
 

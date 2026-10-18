@@ -43,6 +43,7 @@ class ArenaState(TypedDict, total=False):
     research_summary: str
     evidence_gaps: list[str]
     conflicting_claims: list[dict]       # ConflictingClaim
+    rejected_sources: list[dict]         # {url, title, reason}: kept for transparency
     research_retry_count: int            # +1 only when going BACK to research (first pass = 0)
 
     # --- debate ------------------------------------------- (proposer/critic/judge)

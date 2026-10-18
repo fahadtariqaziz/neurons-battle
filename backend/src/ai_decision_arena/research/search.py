@@ -3,6 +3,7 @@
 - Transient errors (timeout, network, 5xx) → retry with exponential backoff.
 - Permanent errors (bad key, quota used up, bad request) → no retry; recorded as a failure.
 - A failed query becomes a SearchFailure (an evidence gap), never invented results.
+- Queries run in parallel threads (network-bound work); results are merged in query order.
 """
 
 import time
@@ -10,6 +11,7 @@ from functools import lru_cache
 
 import tavily.errors as tavily_errors
 from langsmith import traceable
+from langsmith.utils import ContextThreadPoolExecutor
 from tavily import TavilyClient
 
 from ai_decision_arena.config import get_settings
@@ -24,6 +26,7 @@ PERMANENT_ERRORS = (
     tavily_errors.ForbiddenError,
 )
 MAX_SNIPPET_CHARS = 2000
+MAX_PARALLEL_SEARCHES = 6
 
 
 @lru_cache
@@ -76,28 +79,37 @@ def search_one(q: SearchQuery) -> list[SearchHit]:
     ]
 
 
+def _safe_search(q: SearchQuery) -> list[SearchHit] | SearchFailure:
+    """Never raises: a failure is returned as a value, so one bad query can't stop the others."""
+    try:
+        return search_one(q)
+    except Exception as exc:
+        return SearchFailure(
+            query=q.query,
+            error_type=type(exc).__name__,
+            message=str(exc)[:300],                 # Tavily errors don't include the key
+            retryable=not isinstance(exc, PERMANENT_ERRORS),
+        )
+
+
 def run_searches(queries: list[SearchQuery]) -> tuple[list[SearchHit], list[SearchFailure]]:
-    """Run up to max_search_queries queries. Returns (unique hits, failures)."""
+    """Run up to max_search_queries queries in parallel. Returns (unique hits, failures)."""
     settings = get_settings()
+    queries = queries[: settings.max_search_queries]
     hits: list[SearchHit] = []
     failures: list[SearchFailure] = []
     seen: set[str] = set()
 
-    for q in queries[: settings.max_search_queries]:
-        try:
-            results = search_one(q)
-        except Exception as exc:
-            failures.append(SearchFailure(
-                query=q.query,
-                error_type=type(exc).__name__,
-                message=str(exc)[:300],            # Tavily errors don't include the key
-                retryable=not isinstance(exc, PERMANENT_ERRORS),
-            ))
-            if isinstance(exc, (tavily_errors.InvalidAPIKeyError, tavily_errors.UsageLimitExceededError)):
-                break                               # every other query would fail the same way
-            continue
+    # ContextThreadPoolExecutor = ThreadPoolExecutor that also copies the LangSmith trace
+    # context into each thread, so the tavily_search runs stay nested under "research".
+    with ContextThreadPoolExecutor(max_workers=min(MAX_PARALLEL_SEARCHES, len(queries) or 1)) as pool:
+        outcomes = list(pool.map(_safe_search, queries))   # map keeps the original query order
 
-        for hit in results:
+    for outcome in outcomes:
+        if isinstance(outcome, SearchFailure):
+            failures.append(outcome)
+            continue
+        for hit in outcome:
             key = normalize_url(hit.url)
             if key not in seen:                     # de-duplicate across queries
                 seen.add(key)

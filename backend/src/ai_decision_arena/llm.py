@@ -5,6 +5,8 @@ Two kinds of failure, two kinds of retry:
    with exponential backoff, up to `llm_max_retries` times (ChatAnthropic.max_retries).
 2. Invalid structured output (fails Pydantic validation): call_structured() shows
    Claude the validation error and asks again, up to `llm_max_retries` times.
+   If the output was cut off at max_tokens, it asks for a shorter answer instead
+   (without re-sending the truncated text).
 If both are exhausted, the error is raised for the graph's Error Recovery node.
 """
 
@@ -73,10 +75,21 @@ def call_structured(
         if result["parsed"] is not None:
             return result["parsed"]
 
+        raw = result["raw"]
+        if raw.response_metadata.get("stop_reason") == "max_tokens":
+            # Output was cut off. Re-sending the truncated text wastes tokens: just ask for less.
+            last_error = "output truncated at max_tokens"
+            messages = messages + [HumanMessage(content=(
+                "Your previous answer was cut off because it was too long. "
+                f"Return the complete {schema.__name__} again, much more concisely: "
+                "shorter texts, fewer items, only what matters most."
+            ))]
+            continue
+
         # Validation failed: show Claude its own answer plus the exact error, then retry.
         last_error = str(result["parsing_error"])[:1000]
         messages = messages + [
-            result["raw"],
+            raw,
             HumanMessage(content=(
                 f"Your previous output was invalid:\n{last_error}\n\n"
                 f"Return a corrected {schema.__name__} that satisfies every constraint."
