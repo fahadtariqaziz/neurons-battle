@@ -9,13 +9,15 @@
 - Claude asks questions when something is unclear instead of guessing.
 - After each step, update the **Progress Log** and **Next Step** sections below.
 - Goal is **learning** as well as a working app — prefer simple, readable code first, then add features.
+- **Git:** Claude never commits/pushes. After each step Claude says "ready to commit"; the user tests, commits and pushes (repo: github.com/fahadtariqaziz/neurons-battle).
+- **Testing:** No automated test suite — the user tests manually by running things. Claude gives exact commands to run + what output to expect.
 
 ## Project summary
 A multi-agent system that helps users make technical decisions. Instead of one LLM answer, agents
 clarify the problem → research the web → propose 2–3 solutions → critique → judge/score → verify
 evidence → let the human review → write a final evidence-backed report.
 
-Full original requirements: see `docs/requirements.md` (user pastes it in Step 0.1).
+Full original requirements: see `docs/requirements.md` (saved 2026-10-18).
 
 ## Tech stack (fixed)
 | Area | Choice |
@@ -54,10 +56,10 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 ## Implementation plan (small steps)
 
 ### Phase 0 — Setup
-- [ ] 0.1 [YOU] Paste the full project requirements into `docs/requirements.md`. Create API keys: Anthropic, Tavily, LangSmith. (Don't send keys to Claude!)
-- [ ] 0.2 [CLAUDE] Project skeleton: `backend/` with uv, `pyproject.toml`, `.env.example`, `.gitignore`.
-- [ ] 0.3 [YOU] Copy `.env.example` → `.env`, fill keys, run `uv sync`. Screenshot.
-- [ ] 0.4 [CLAUDE] `check_env.py` script that pings Claude/Tavily/LangSmith. [YOU] run it, screenshot.
+- [x] 0.1 [YOU] Create API keys: Anthropic, Tavily, LangSmith. (Claude saved requirements to `docs/requirements.md`.)
+- [x] 0.2 [CLAUDE] Project skeleton: `backend/` with uv, `pyproject.toml`, `.env.example`, `.env` (empty values), `.gitignore`.
+- [x] 0.3 [YOU] Paste key values into `backend/.env`, run `uv sync` in `backend/`. Screenshot (hide keys).
+- [x] 0.4 [CLAUDE] `scripts/check_env.py` pings Claude/Tavily/LangSmith. [YOU] ran it — first trace visible in LangSmith.
 
 ### Phase 1 — LangGraph basics (learning)
 - [ ] 1.1 [CLAUDE] "Hello graph": tiny State + 2 dummy nodes, run it, **print graph** (ASCII + Mermaid PNG).
@@ -105,21 +107,27 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - [ ] 9.4 [CLAUDE] Human review, final report, feedback.
 
 ### Phase 10 — Quality
-- [ ] 10.1 [CLAUDE] Unit tests (mocked Claude/Tavily) + graph tests.
-- [ ] 10.2 [CLAUDE] Eval dataset + LangSmith evaluation.
-- [ ] 10.3 [CLAUDE] README (install, run, test, troubleshoot).
+- [ ] 10.1 [YOU] Manual test pass using the scenario checklist in `docs/requirements.md` §12 (no automated tests — user decision).
+- [ ] 10.2 [CLAUDE] (optional) Small eval dataset + LangSmith evaluation.
+- [ ] 10.3 [CLAUDE] README (install, run, troubleshoot).
 
 ## Decisions log
 - 2026-10-18: Start with InMemorySaver for learning, switch to Postgres in Phase 7 (requirement: Postgres for final).
 - 2026-10-18: Sequential graph for MVP (no parallel nodes yet).
-- 2026-10-18: Use git for this project (local repo first; GitHub optional later).
+- 2026-10-18: Git + GitHub set up by user. User commits/pushes; Claude never does.
+- 2026-10-18: Default model `claude-sonnet-5-5` (configurable via `ANTHROPIC_MODEL`).
+- 2026-10-18: Manual testing only, no automated test suite.
+- 2026-10-18: Backend uses uv "src layout": code in `backend/src/ai_decision_arena/`; `.env` lives in `backend/`.
 
 ## Open questions for user
-- Which Claude model? (cheaper/faster Sonnet vs stronger Opus) — default proposal: Sonnet for most agents, configurable.
+- (none right now)
 
 ## Progress log
 - 2026-10-18: Created `handoff.md` with plan.
-- 2026-10-18: Git setup started — G1 [YOU] set git name/email, G2 [CLAUDE] `git init` + `.gitignore`, G3 first commit.
+- 2026-10-18: Git/GitHub set up by user.
+- 2026-10-18: Step 0.2 done — `.gitignore`, `docs/requirements.md`, `backend/` uv project (deps: langgraph, langchain-anthropic, langsmith, tavily-python, pydantic-settings), `.env.example`, `.env` with empty values.
+- 2026-10-18: 0.3 done (keys set, uv sync OK, .env confirmed ignored). 0.4 script written: `backend/scripts/check_env.py`; added python-dotenv dep.
+- 2026-10-18: Phase 0 done. Claude (claude-sonnet-5-5) call traced in LangSmith project `ai-decision-arena` (24 tokens).
 
 ## ▶ Next step
-**0.1 [YOU]** Paste requirements into `docs/requirements.md`; create API keys (Anthropic, Tavily, LangSmith) and keep them private. Then answer the open questions.
+**1.1 [CLAUDE]** Hello graph: tiny State + 2 dummy nodes, run it, print graph (ASCII + Mermaid PNG).
