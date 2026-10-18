@@ -63,8 +63,8 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 
 ### Phase 1 — LangGraph basics (learning)
 - [x] 1.1 [CLAUDE] "Hello graph": tiny State + 2 dummy nodes, run it, **print graph** (ASCII + Mermaid PNG).
-- [ ] 1.2 [CLAUDE] One node calls Claude. [YOU] run it.
-- [ ] 1.3 [YOU] Open LangSmith, find the trace, screenshot.
+- [x] 1.2 [CLAUDE] One node calls Claude. [YOU] run it.
+- [x] 1.3 [YOU] Open LangSmith, find the trace, screenshot.
 
 ### Phase 2 — Real state & schemas
 - [ ] 2.1 [CLAUDE] `ArenaState` TypedDict + Pydantic models (Evidence, Proposal, Criticism, Score, Verdict, Report).
@@ -117,6 +117,7 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - 2026-10-18: Git + GitHub set up by user. User commits/pushes; Claude never does.
 - 2026-10-18: Default model `claude-sonnet-5-5` (configurable via `ANTHROPIC_MODEL`).
 - 2026-10-18: Manual testing only, no automated test suite.
+- 2026-10-18: Always read Claude replies with `reply.text`, NOT `reply.content` (Sonnet 5.5 returns a list incl. a `thinking` block). Structured output (Phase 3+) avoids this anyway.
 - 2026-10-18: Backend uses uv "src layout": code in `backend/src/ai_decision_arena/`; `.env` lives in `backend/`.
 
 ## Open questions for user
@@ -130,6 +131,7 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - 2026-10-18: Phase 0 done. Claude (claude-sonnet-5-5) call traced in LangSmith project `ai-decision-arena` (24 tokens).
 - 2026-10-18: Phase 0 committed by user. 1.1 done: `backend/scripts/hello_graph.py` (State, 2 nodes, edges, ASCII/Mermaid/PNG print). Added `grandalf` dep (needed for draw_ascii). PNG goes to `backend/hello_graph.png` (gitignored).
 - 2026-10-18: 1.1 verified by user + committed. 1.2 written: `backend/scripts/claude_graph.py` (prepare → ask_claude, System/Human messages, run_name+metadata for LangSmith).
+- 2026-10-18: 1.2/1.3 verified + committed. Fixed bug: answer showed raw content blocks → use `reply.text`.
 
 ## ▶ Next step
-**1.2/1.3 [YOU]** Run `uv run python scripts/claude_graph.py`, check LangSmith trace `claude_graph_demo`, screenshot. Then **Phase 2** (state + Pydantic schemas).
+**[YOU]** re-run `claude_graph.py` to confirm clean answer, commit. Then **2.1 [CLAUDE]** ArenaState + Pydantic models.

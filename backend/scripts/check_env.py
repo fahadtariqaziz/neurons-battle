@@ -39,7 +39,7 @@ def check_claude() -> None:
     llm = ChatAnthropic(model=model, max_tokens=20, timeout=30)
     reply = llm.invoke("Reply with exactly one word: OK")
     usage = reply.usage_metadata or {}
-    print(f"  ✅ Claude ({model}) replied: {reply.content!r}  tokens={usage.get('total_tokens')}")
+    print(f"  ✅ Claude ({model}) replied: {reply.text!r}  tokens={usage.get('total_tokens')}")
 
 
 def check_tavily() -> None:

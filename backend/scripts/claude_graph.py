@@ -54,7 +54,9 @@ def ask_claude(state: ClaudeState) -> dict:
     ]
     reply = llm.invoke(messages)
     usage = reply.usage_metadata or {}
-    return {"answer": reply.content, "tokens_used": usage.get("total_tokens", 0)}
+    # reply.content can be a LIST of blocks (e.g. a "thinking" block + a "text" block).
+    # reply.text joins only the text blocks, so the state stores just the answer.
+    return {"answer": reply.text, "tokens_used": usage.get("total_tokens", 0)}
 
 
 def build_graph():
