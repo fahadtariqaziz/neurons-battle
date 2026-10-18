@@ -6,12 +6,16 @@ instead of silently flowing into the next agent.
 
 Field descriptions matter: in later steps Claude fills these models through
 structured output, and the descriptions become part of its instructions.
+
+Rule for models Claude fills (LLM output schemas): make list fields REQUIRED (no default).
+With structured output Claude often omits optional fields, so a defaulted list can
+silently come back empty. Required + "empty list if none" forces an explicit answer.
 """
 
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 # ---------------------------------------------------------------------------
 # Fixed vocabularies (Literal = only these exact strings are allowed)
@@ -107,15 +111,12 @@ class IntakeResult(BaseModel):
     problem_domain: ProblemDomain
     problem_summary: str = Field(description="One or two neutral sentences restating the problem. Do not add facts.")
     requirements: list[NamedValue] = Field(
-        default_factory=list,
-        description="Goals and needs the user EXPLICITLY stated (features, scale, workload, etc.). Never guess.",
+        description="Goals and needs the user EXPLICITLY stated (features, scale, workload, etc.). Never guess. Empty list if none.",
     )
     constraints: list[NamedValue] = Field(
-        default_factory=list,
-        description="Limits the user EXPLICITLY stated (budget, cloud, team skills, deadlines, existing stack).",
+        description="Limits the user EXPLICITLY stated (budget, cloud, team skills, deadlines, existing stack). Empty list if none.",
     )
     missing_information: list[str] = Field(
-        default_factory=list,
         max_length=8,
         description="Important unknowns that could change the recommendation.",
     )
@@ -129,8 +130,33 @@ class ClarificationResult(BaseModel):
     """Output of the Clarification node: do we need to ask the user something?"""
 
     need_clarification: bool = Field(description="True only if missing info could materially change the recommendation.")
-    questions: list[str] = Field(default_factory=list, max_length=5, description="Concise, targeted questions. Empty if none.")
+    questions: list[str] = Field(
+        max_length=5,
+        description="The questions to ask. MUST be non-empty when need_clarification is true; empty list otherwise.",
+    )
     reason: str = Field(description="Why these questions matter, or why no questions are needed.")
+    new_requirements: list[NamedValue] = Field(
+        description="Requirements newly confirmed by the user's answers. Empty list if none.",
+    )
+    new_constraints: list[NamedValue] = Field(
+        description="Constraints newly confirmed by the user's answers. Empty list if none.",
+    )
+    assumptions: list[str] = Field(
+        description="When need_clarification is false: explicit assumptions for info that is still missing. Empty list when asking.",
+    )
+
+    @model_validator(mode="after")
+    def questions_match_decision(self) -> "ClarificationResult":
+        # Raising here makes call_structured() retry with this message as feedback.
+        if self.need_clarification and not self.questions:
+            raise ValueError("need_clarification is true but questions is empty: provide the questions to ask.")
+        return self
+
+
+class ClarificationAnswers(BaseModel):
+    """What the user sends back when the graph is paused for clarification."""
+
+    answers: dict[str, str] = Field(description="question -> answer. An empty answer means 'skipped'.")
 
 
 # ---------------------------------------------------------------------------

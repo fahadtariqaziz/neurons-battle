@@ -32,6 +32,7 @@ class ArenaState(TypedDict, total=False):
     # --- clarification ------------------------------------------ (clarification)
     need_clarification: bool
     clarification_questions: list[str]   # questions currently pending
+    clarification_reason: str            # Claude's reason for asking / not asking
     clarification_answers: dict[str, str]  # question -> user's answer (all rounds)
     assumptions: list[str]               # recorded when we stop asking
     clarification_round_count: int       # one user-input round = +1 (not per question)
