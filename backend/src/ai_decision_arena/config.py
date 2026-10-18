@@ -11,6 +11,7 @@ Usage:
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from dotenv import load_dotenv
 from pydantic import Field, SecretStr, field_validator
@@ -55,6 +56,9 @@ class Settings(BaseSettings):
     max_results_per_query: int = Field(default=5, ge=1, le=20)
     max_evidence_items: int = Field(default=20, ge=1, le=100)
     max_excerpt_chars: int = Field(default=2000, ge=200, le=2000)   # Evidence.relevant_excerpt max_length
+    tavily_search_depth: Literal["basic", "advanced"] = "basic"      # advanced = better snippets, 2x credits
+    tavily_timeout_seconds: float = Field(default=30, gt=0)
+    search_max_retries: int = Field(default=2, ge=0, le=5, description="Retries per query for transient Tavily errors.")
 
     # --- judge rubric: criterion -> weight; must add up to 1.0 ---
     # Override in .env as JSON: RUBRIC_WEIGHTS={"requirements_fit":0.4,...}

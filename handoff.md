@@ -76,7 +76,7 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - [x] 3.3 [YOU] Run CLI, answer questions, screenshot trace showing interrupt/resume.
 
 ### Phase 4 — Research
-- [ ] 4.1 [CLAUDE] Tavily client wrapper + query generation.
+- [x] 4.1 [CLAUDE] `research/planner.py` (Claude → ResearchPlan), `research/search.py` (Tavily: retries, dedupe, failures, @traceable), `research/sources.py` (normalize_url, classify_source). Demo: `scripts/run_research_plan.py`.
 - [ ] 4.2 [CLAUDE] Convert results → structured Evidence records (dedupe, limits, untrusted-content handling).
 
 ### Phase 5 — Debate
@@ -129,6 +129,9 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - 2026-10-18: Python has final say on routing: `need = llm.need_clarification and rounds < max and questions non-empty`. Invalid resume payloads → re-interrupt with `error` (while-loop pattern).
 - 2026-10-18: Graph lives in `graph.py`; routing functions are named `route_after_<node>`. Unbuilt targets temporarily map to END.
 - 2026-10-18: LLM-output schemas: list fields are REQUIRED (no default) — Claude omits optional fields under structured output (bug found: need=True with 0 questions). Cross-field rules go in `@model_validator` so `call_structured` retries.
+- 2026-10-18: Tavily: community_experience queries use include_domains=[reddit, HN, github] with mode "restrict" (tested: "prefer" returned none). Claude-suggested official domains use "prefer" (wrong guess can't empty results).
+- 2026-10-18: Tavily permanent errors (bad key, quota, bad request) → no retry; transient → backoff 1s,2s. Failures become `SearchFailure` (evidence gap), never invented results.
+- 2026-10-18: Known for 4.2/checker: Tavily returns outdated doc versions (e.g. PostgreSQL 6.5) and vendor-biased pages; must be judged by Claude, not keyword rules. No publish dates from Tavily in general.
 - 2026-10-18: Backend uses uv "src layout": code in `backend/src/ai_decision_arena/`; `.env` lives in `backend/`.
 
 ## Open questions for user
@@ -151,6 +154,7 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - 2026-10-18: 3.1 committed. 3.2 done: offline test with fake LLM (limit, bad input, skip, 3 LLM calls not 6) + 1 real run OK.
 - 2026-10-18: User run of 3.3 exposed bug (no questions asked, no assumptions). Fixed: required list fields + validator + `clarification_reason` in state + assumption fallback. Probe: 3/3 runs now ask 4 questions.
 - 2026-10-18: 3.3 verified by user (2 runs, skip handling, LangSmith Threads Turn1/Turn2). Prompt tweak: one topic per clarification question (compound Qs gave ambiguous answers).
+- 2026-10-18: Phase 3 committed. 4.1 done: 28-29 unique hits from 6 queries; fixed community labeling (path hints) + Reddit retrieval (restrict mode).
 
 ## ▶ Next step
-**[YOU]** commit Phase 3. Then **4.1 [CLAUDE]** Tavily wrapper + query generation.
+**4.1 [YOU]** run `uv run python scripts/run_research_plan.py`, check LangSmith `tavily_search` tool runs, commit. Then **4.2 [CLAUDE]** evidence extraction (Claude → Evidence records) + `nodes/research.py` wired into graph.

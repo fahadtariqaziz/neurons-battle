@@ -192,6 +192,54 @@ class Evidence(BaseModel):
     verification_status: VerificationStatus = "pending"
 
 
+SearchPurpose = Literal[
+    "official_docs",        # primary documentation for a candidate option
+    "limitations",          # known issues, caveats, scaling/operational problems
+    "benchmarks",           # official or independent performance data
+    "pricing",              # current prices for cost estimates
+    "community_experience", # Reddit / forums / GitHub issues: real-world reports
+    "comparison",           # head-to-head articles
+]
+
+
+class SearchQuery(BaseModel):
+    query: str = Field(max_length=300, description="Short web search query (keywords, not a full sentence).")
+    purpose: SearchPurpose
+    target_option: str = Field(description='Which candidate option this is about, e.g. "PostgreSQL", or "both".')
+    preferred_domains: list[str] = Field(
+        max_length=3,
+        description='Official domains to prefer, e.g. ["postgresql.org"]. Only well-known official domains; empty list if unsure.',
+    )
+
+
+class ResearchPlan(BaseModel):
+    """Output of query planning (LLM)."""
+
+    candidate_options: list[str] = Field(description="The realistic options to research, including ones the user named.")
+    queries: list[SearchQuery] = Field(min_length=1, description="Ordered by priority: official docs first.")
+
+
+class SearchHit(BaseModel):
+    """One raw-ish Tavily result, before Claude turns it into Evidence. Snippet only, never the full page."""
+
+    url: str
+    title: str
+    snippet: str = Field(max_length=2000)
+    tavily_score: float
+    published_at: str | None = None    # only if Tavily returned one
+    source_type: SourceType            # from the domain heuristic; may be corrected later
+    query: str
+    purpose: SearchPurpose
+    target_option: str
+
+
+class SearchFailure(BaseModel):
+    query: str
+    error_type: str
+    message: str = Field(max_length=300)
+    retryable: bool
+
+
 class ConflictingClaim(BaseModel):
     """Two or more evidence records that disagree."""
 
