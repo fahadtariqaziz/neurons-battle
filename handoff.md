@@ -129,6 +129,7 @@ Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a ret
 - 2026-10-18: 0.3 done (keys set, uv sync OK, .env confirmed ignored). 0.4 script written: `backend/scripts/check_env.py`; added python-dotenv dep.
 - 2026-10-18: Phase 0 done. Claude (claude-sonnet-5-5) call traced in LangSmith project `ai-decision-arena` (24 tokens).
 - 2026-10-18: Phase 0 committed by user. 1.1 done: `backend/scripts/hello_graph.py` (State, 2 nodes, edges, ASCII/Mermaid/PNG print). Added `grandalf` dep (needed for draw_ascii). PNG goes to `backend/hello_graph.png` (gitignored).
+- 2026-10-18: 1.1 verified by user + committed. 1.2 written: `backend/scripts/claude_graph.py` (prepare → ask_claude, System/Human messages, run_name+metadata for LangSmith).
 
 ## ▶ Next step
-**1.1 [YOU]** Run `uv run python scripts/hello_graph.py`, open the PNG + LangSmith trace, screenshot. Then **1.2 [CLAUDE]** one node calls Claude.
+**1.2/1.3 [YOU]** Run `uv run python scripts/claude_graph.py`, check LangSmith trace `claude_graph_demo`, screenshot. Then **Phase 2** (state + Pydantic schemas).
