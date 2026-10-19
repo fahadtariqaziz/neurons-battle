@@ -22,7 +22,7 @@ print(f"  debate rounds:        {settings.max_debate_rounds}")
 
 print("\n--- Bad rubric (adds up to 0.9) is rejected ---")
 try:
-    Settings(rubric_weights={"requirements_fit": 0.5, "cost_efficiency": 0.4})
+    Settings(rubric_weights={"fit_to_user": 0.5, "safety": 0.4})
 except ValidationError as exc:
     print(f"  ❌ {exc.errors()[0]['msg']}")
 

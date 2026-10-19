@@ -1,8 +1,8 @@
-"""Step 3.1 — run the Intake node on a question.
+"""Step 3.1 — run the Intake node on a health concern.
 
 Run from the backend/ folder:
     uv run python scripts/run_intake.py
-    uv run python scripts/run_intake.py "We have a Django monolith on AWS and 5 devs. Should we move to microservices?"
+    uv run python scripts/run_intake.py "I was diagnosed with type 2 diabetes last year, on metformin, still tired all the time"
 """
 
 import json
@@ -13,12 +13,9 @@ from langgraph.graph import END, START, StateGraph
 from ai_decision_arena.nodes.intake import InvalidInputError, intake_node
 from ai_decision_arena.state import ArenaState
 
-question = " ".join(sys.argv[1:]) or (
-    "I am building an AI application that may have 10,000 users. "
-    "Should I use PostgreSQL or MongoDB for the backend?"
-)
+question = " ".join(sys.argv[1:]) or "I have diabetes"
 
-# A one-node graph for now; the full graph comes later.
+# A one-node graph for now; the full graph is in graph.py.
 builder = StateGraph(ArenaState)
 builder.add_node("intake", intake_node)
 builder.add_edge(START, "intake")

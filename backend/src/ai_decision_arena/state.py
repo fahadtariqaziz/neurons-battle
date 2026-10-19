@@ -20,14 +20,22 @@ class ArenaState(TypedDict, total=False):
     status: WorkflowStatus               # editor warns on typos like "complete"
     current_node: str                    # last node that ran, for the frontend
 
-    # --- problem understanding ----------------------------------------- (intake)
+    # --- case understanding -------------------------------------------- (intake)
     question: str                        # the user's original text, never rewritten
     user_context: str                    # optional extra context from the form
-    problem_domain: str                  # a ProblemDomain value, e.g. "databases"
-    problem_summary: str                 # neutral restatement (used for research queries)
-    requirements: dict[str, str]         # e.g. {"workload": "read-heavy"}
-    constraints: dict[str, str]          # e.g. {"cloud": "AWS", "budget": "< $200/mo"}
+    condition_name: str                  # e.g. "type 2 diabetes" (as the user frames it)
+    condition_category: str              # a ConditionCategory value, e.g. "metabolic_endocrine"
+    case_summary: str                    # neutral restatement (used for research queries)
+    health_profile: dict[str, str]       # e.g. {"age": "42", "medications": "metformin"}
+    symptoms: dict[str, str]             # e.g. {"fatigue": "most afternoons"}
+    constraints: dict[str, str]          # e.g. {"diet": "vegetarian", "budget": "low-cost"}
     missing_information: list[str]
+    red_flags: list[str]                 # stated symptoms that may need urgent care (clarification appends)
+
+    # --- red-flag pause ------------------------------------------ (await_red_flag_ack)
+    red_flags_acknowledged: list[str]    # flags shown when the user decided (record for the report)
+    red_flag_action: str                 # "continue" | "stop"; decided ONCE per session, later flags only show
+    red_flag_resume_to: str              # "clarification" | "research": where to go after "continue"
 
     # --- clarification ------------------------------------------ (clarification)
     need_clarification: bool
@@ -39,18 +47,21 @@ class ArenaState(TypedDict, total=False):
 
     # --- research ----------------------------------------------------- (research)
     research_queries: list[str]
-    evidence: list[dict]                 # Evidence
-    research_summary: str
+    evidence: list[dict]                 # Evidence (each has a perspective)
+    perspective_summaries: dict[str, str]  # perspective -> summary + prevalence note
+    research_summary: str                # all perspectives, for quick printing
     evidence_gaps: list[str]
     conflicting_claims: list[dict]       # ConflictingClaim
-    rejected_sources: list[dict]         # {url, title, reason}: kept for transparency
+    rejected_sources: list[dict]         # {url, title, perspective, reason}: kept for transparency
     research_retry_count: int            # +1 only when going BACK to research (first pass = 0)
 
     # --- debate ------------------------------------------- (proposer/critic/judge)
-    proposals: list[dict]                # Proposal                 (proposer)
-    criticisms: list[dict]               # Criticism                (critic)
-    scores: list[dict]                   # SolutionScore            (judge)
-    verdict: dict                        # Verdict                  (judge)
+    care_plans: list[dict]               # CarePlan, 2-3 per perspective      (proposer)
+    proposer_notes: dict[str, str]       # perspective -> why fewer than 2 plans (proposer)
+    proposer_lane_status: dict[str, str]  # perspective -> ok | thin | declined | no_evidence (proposer)
+    criticisms: list[dict]               # Criticism, one per plan            (critic)
+    scores: list[dict]                   # PlanScore, one per plan            (judge)
+    verdict: dict                        # Verdict                            (judge)
     debate_round: int                    # +1 each time the proposer starts a new round
 
     # --- verification ------------------------------------------ (evidence_checker)

@@ -23,12 +23,20 @@ ENV_FILE = Path(__file__).resolve().parents[2] / ".env"   # backend/.env
 # Real environment variables win over .env (override=False).
 load_dotenv(ENV_FILE, override=False)
 
+# Judge rubric: criterion -> weight. The descriptions are shown to the Judge verbatim.
 DEFAULT_RUBRIC = {
-    "requirements_fit": 0.30,
-    "technical_feasibility": 0.25,
-    "reliability_and_risks": 0.20,
-    "cost_efficiency": 0.15,
-    "evidence_quality": 0.10,
+    "fit_to_user": 0.30,
+    "safety": 0.25,
+    "evidence_quality": 0.20,
+    "practicality": 0.15,
+    "completeness": 0.10,
+}
+RUBRIC_DESCRIPTIONS = {
+    "fit_to_user": "Matches THIS user's condition, profile, symptoms, goals and constraints (diet, budget, preferences).",
+    "safety": "Avoids harm: respects contraindications, interactions, red flags; never suggests stopping prescribed treatment.",
+    "evidence_quality": "Backed by relevant, strong, recent evidence (guidelines/trials > references > anecdotes), with few gaps.",
+    "practicality": "Realistic to follow day to day given the user's situation (effort, cost, access).",
+    "completeness": "Covers routine, diet, medications/treatments, expected timeline and prevalence/outlook.",
 }
 
 
@@ -51,17 +59,19 @@ class Settings(BaseSettings):
     max_research_retries: int = Field(default=2, ge=0, le=5)
     max_debate_rounds: int = Field(default=2, ge=1, le=5)
 
-    # --- research limits (cost control) ---
-    max_search_queries: int = Field(default=6, ge=1, le=20)
+    # --- research limits (cost control). Research runs 3 lanes: research / doctor / patient ---
+    queries_per_perspective: int = Field(default=3, ge=1, le=6)
     max_results_per_query: int = Field(default=5, ge=1, le=20)
-    max_evidence_items: int = Field(default=20, ge=1, le=100)
+    max_hits_per_perspective: int = Field(default=12, ge=3, le=30, description="Hits sent to the extractor per lane.")
+    max_evidence_per_perspective: int = Field(default=10, ge=1, le=30)
     max_excerpt_chars: int = Field(default=2000, ge=200, le=2000)   # Evidence.relevant_excerpt max_length
     tavily_search_depth: Literal["basic", "advanced"] = "basic"      # advanced = better snippets, 2x credits
+    tavily_patient_search_depth: Literal["basic", "advanced"] = "advanced"   # forum snippets are short with basic
     tavily_timeout_seconds: float = Field(default=30, gt=0)
     search_max_retries: int = Field(default=2, ge=0, le=5, description="Retries per query for transient Tavily errors.")
 
     # --- judge rubric: criterion -> weight; must add up to 1.0 ---
-    # Override in .env as JSON: RUBRIC_WEIGHTS={"requirements_fit":0.4,...}
+    # Override in .env as JSON: RUBRIC_WEIGHTS={"fit_to_user":0.4,...}
     rubric_weights: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_RUBRIC))
 
     # --- tracing ---
