@@ -163,3 +163,121 @@ def print_debate(state: dict) -> None:
         print("\n❓ Questions the Judge would like answered:")
         for q in verdict["clarification_questions"]:
             print(f"   - {q}")
+
+
+# --- Phase 6: human review prompt and final report -------------------------------------------
+
+MENU = [
+    ("approve", "Approve: accept the three plans and write the report"),
+    ("select_plan", "Select one plan to follow up on, then write the report"),
+    ("reject", "Reject: say what is wrong; a new debate round uses your feedback"),
+    ("request_debate_round", "Another proposer → critic → judge round"),
+    ("request_more_research", "More research on something specific"),
+    ("modify_profile", "Correct a fact about you (key: value) and re-check"),
+    ("add_context", "Add missing context and re-check"),
+]
+
+
+def ask_human_review(payload: dict) -> dict:
+    """Print the review summary and collect a validated-looking reply for Command(resume=...)."""
+    print(f"\n👤 HUMAN REVIEW (round {payload['round']})")
+    for item in payload["perspectives"]:
+        print(f"\n  ── {item['label']}")
+        if not item.get("plan_id"):
+            print(f"     (no plan) {item.get('reason', '')[:200]}")
+            continue
+        total = item.get("weighted_total")
+        print(f"     🏆 {item['plan_id']}  {item['name']}   total={total if total is None else f'{total:.2f}'}/10  "
+              f"confidence={item.get('confidence')}  difficulty={item.get('difficulty')}")
+        print(f"        {item['summary'][:300]}")
+        if item.get("verification_counts"):
+            print(f"        verification: {item['verification_counts']}")
+        for o in item.get("top_objections", []):
+            print(f"        critic: {o[:160]}")
+    if payload.get("unresolved_questions"):
+        print("\n  ❓ Unresolved:")
+        for q in payload["unresolved_questions"][:8]:
+            print(f"     - {q[:160]}")
+    limits = payload.get("limits", {})
+    print(f"\n  limits: another debate round {'possible' if limits.get('can_debate') else 'NOT possible'}, "
+          f"more research {'possible' if limits.get('can_research') else 'NOT possible'}"
+          + (f"  ({'; '.join(limits.get('blocked_by', []))})" if limits.get("blocked_by") else ""))
+    print("\n  What do you want to do?")
+    for i, (_, label) in enumerate(MENU, start=1):
+        print(f"    {i}. {label}")
+    choice = input("  > ").strip()
+    action = MENU[int(choice) - 1][0] if choice.isdigit() and 1 <= int(choice) <= len(MENU) else choice
+    reply: dict = {"action": action}
+    if action in ("reject", "request_more_research", "add_context"):
+        reply["feedback"] = input("  Your feedback / what to look for:\n  > ").strip()
+    elif action == "select_plan":
+        reply["selected_plan_id"] = input(f"  Plan id ({', '.join(payload.get('all_plan_ids', []))}):\n  > ").strip()
+    elif action == "modify_profile":
+        raw = input("  Changes as key: value, separated by ';' (e.g. age: 50; medications: metformin)\n  > ")
+        reply["profile_changes"] = {k.strip(): v.strip() for k, v in
+                                    (part.split(":", 1) for part in raw.split(";") if ":" in part)}
+    print()
+    return reply
+
+
+def print_report(state: dict) -> None:
+    r = state.get("final_report")
+    if not r:
+        print("\n(no final report)")
+        return
+    print("\n" + "═" * 100)
+    print(f"📋 FINAL REPORT — {r['condition_name']}   status={state.get('status')}   "
+          f"{'CONDITIONAL' if r['is_conditional'] else 'confident'}")
+    print("═" * 100)
+    if r.get("red_flags"):
+        print("🚨 Red flags:")
+        for f in r["red_flags"]:
+            print(f"   - {f[:200]}")
+    print(f"\n{r['overview']}\n")
+    print(f"Method: {r['research_methodology']}")
+    if r.get("human_action"):
+        print(f"Human review: {r['human_action']}" + (f" → selected {r['human_selected_plan_id']}" if r.get("human_selected_plan_id") else ""))
+
+    for item in r["perspectives"]:
+        print(f"\n{'─' * 100}\n  {PERSPECTIVE_LABELS[item['perspective']]}")
+        plan = item.get("plan")
+        if not plan:
+            print(f"  (no plan) {item.get('unavailable_reason', '')[:300]}")
+            continue
+        score = item.get("score") or {}
+        total = score.get("weighted_total")
+        print(f"  🏆 {plan['name']}   total={total if total is None else f'{total:.2f}'}/10  confidence={score.get('confidence')}  "
+              f"difficulty={plan['difficulty']}")
+        print(f"     {plan['summary'][:400]}")
+        print(f"     routine:\n{_bullets(plan['daily_routine'])}")
+        print(f"     diet:\n{_bullets(plan['diet'])}")
+        print(f"     medications/treatments:\n{_bullets(plan['medications_treatments'])}")
+        print(f"     timeline:   {plan['expected_timeline'][:250]}")
+        print(f"     prevalence: {plan['prevalence_and_outlook'][:250]}")
+        print(f"     safety:     {plan['safety_notes'][:250]}")
+        print(f"     verification: {item.get('verification_counts')}")
+        for n in item.get("verification_notes", [])[:4]:
+            print(f"        - {n[:160]}")
+        for o in item.get("critic_key_objections", [])[:2]:
+            print(f"     critic: {o[:160]}")
+        print("     key evidence:")
+        for e in item.get("key_evidence", [])[:5]:
+            print(f"        [{e['verification_status']}] {e['title'][:70]}  {e['url']}")
+
+    def section(title, items):
+        print(f"\n{title}")
+        for x in items or ["(none)"]:
+            print(f"   - {x[:220]}")
+
+    section("🤝 Where the perspectives agree:", r["where_perspectives_agree"])
+    section("↔️  Where they differ:", r["where_perspectives_differ"])
+    section("❓ Uncertainties:", r["uncertainties"])
+    section("⛔ Claims not supported by their evidence:", r["unsupported_claims"])
+    section("🔍 Unresolved questions:", r["unresolved_questions"])
+    section("➡️  Next steps:", r["next_steps"])
+    print(f"\nℹ️  {r['disclaimer']}")
+    if state.get("metrics"):
+        m = state["metrics"]
+        print(f"\n⏱  active {m.get('active_seconds')}s · debate rounds {m.get('debate_rounds')} · research retries "
+              f"{m.get('research_retries')} · evidence {m.get('evidence_count')} · claims checked {m.get('claims_checked')} "
+              f"· errors {m.get('errors')}")

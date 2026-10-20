@@ -551,15 +551,49 @@ class Verdict(BaseModel):
 # Verification, human review, report, errors (Phase 6)
 # ---------------------------------------------------------------------------
 
+CheckedStatus = Literal["verified", "partially_supported", "unsupported", "contradicted", "irrelevant", "unavailable"]
+
+
+class ClaimCheck(BaseModel):
+    """LLM output: one factual claim of a plan, checked against the evidence it cites."""
+
+    claim: str = Field(description="The claim as the plan states it, shortened if long.")
+    evidence_ids: list[str] = Field(description="Ids the plan cites for this claim. Empty list if it cites none.")
+    status: CheckedStatus
+    notes: str = Field(description="One sentence: what the cited excerpt actually says, and why this status.")
+    is_anecdotal: bool = Field(description="True if the only support is individual patient reports.")
+    is_material: bool = Field(description="True if the plan's core guidance would change were this claim wrong.")
+
+
+class PlanVerification(BaseModel):
+    """LLM output of the Evidence Checker for ONE plan."""
+
+    claims: list[ClaimCheck] = Field(description="Checkable factual claims, most important first, at most 10.")
+    overall: str = Field(description="Two sentences: how well the plan is supported by its evidence.")
+    material_gaps: list[str] = Field(
+        description="For each MATERIAL claim that is unsupported, contradicted or unavailable: what a follow-up "
+                    "search should look for. Empty list if none."
+    )
+
+    @model_validator(mode="after")
+    def gaps_match_failures(self) -> "PlanVerification":
+        failing = [c for c in self.claims if c.is_material and c.status in ("unsupported", "contradicted", "unavailable")]
+        if failing and not self.material_gaps:
+            raise ValueError("material claims failed verification but material_gaps is empty: say what a follow-up search should find.")
+        return self
+
+
 class ClaimVerification(BaseModel):
-    """Evidence Checker result for one factual claim."""
+    """Evidence Checker result for one factual claim, as stored in state."""
 
     claim: str
     plan_id: str | None = None
+    perspective: str = ""
     evidence_ids: list[str] = Field(default_factory=list)
     status: VerificationStatus
     notes: str = Field(description="Why this status. For rejected evidence, the reason it was rejected.")
     is_anecdotal: bool = False
+    is_material: bool = False
 
 
 class HumanReviewInput(BaseModel):
@@ -586,26 +620,43 @@ class PerspectiveResult(BaseModel):
     score: PlanScore | None = None
     key_evidence: list[EvidenceRef] = Field(default_factory=list)
     critic_key_objections: list[str] = Field(default_factory=list)
+    verification_counts: dict[str, int] = Field(default_factory=dict, description="status -> number of claims")
     verification_notes: list[str] = Field(default_factory=list)
     unavailable_reason: str = Field(default="", description="Why there is no plan, when plan is None.")
 
 
+class ReportNarrative(BaseModel):
+    """LLM output: the human-readable parts of the final report. Everything else is assembled in Python."""
+
+    overview: str = Field(description="4-6 plain-language sentences for the user: what the three perspectives say, "
+                                      "where they agree, the main caveat. No new facts.")
+    where_perspectives_agree: list[str] = Field(description="Points the research, doctor and patient plans share. Empty list if none.")
+    where_perspectives_differ: list[str] = Field(description="Where they differ or disagree, and why. Empty list if none.")
+    key_uncertainties: list[str] = Field(description="What remains unknown or weakly supported, at most 6.")
+    next_steps: list[str] = Field(description="Questions to bring to a doctor and things to monitor, at most 6. Never prescribe.")
+
+
 class FinalReport(BaseModel):
+    generated_at: datetime = Field(default_factory=utc_now)
     original_question: str
     condition_name: str
     confirmed_profile: dict[str, str]
     symptoms: dict[str, str]
     constraints: dict[str, str]
     clarifications: dict[str, str]
+    assumptions: list[str] = Field(default_factory=list)
     research_methodology: str
+    overview: str
     perspectives: list[PerspectiveResult] = Field(description="Research, doctor and patient results, in that order.")
     where_perspectives_agree: list[str]
     where_perspectives_differ: list[str]
-    is_conditional: bool = Field(description="True if the guidance depends on unconfirmed assumptions.")
+    is_conditional: bool = Field(description="True if the guidance depends on unconfirmed assumptions or unverified claims.")
     uncertainties: list[str]
     unsupported_claims: list[str]
     unresolved_questions: list[str]
     next_steps: list[str] = Field(description="E.g. questions to bring to a doctor, what to monitor.")
+    human_action: str | None = Field(default=None, description="The user's final review action.")
+    human_selected_plan_id: str | None = Field(default=None, pattern=PLAN_ID_PATTERN)
     red_flags: list[str]
     disclaimer: str
 

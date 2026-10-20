@@ -22,17 +22,13 @@ from ai_decision_arena.state import ArenaState
 
 
 def _focus_for_follow_up(state: ArenaState) -> list[str] | None:
-    """What a follow-up pass should look for: the Judge's open questions, plus any answers the
-    user gave since (so research can re-check what changed). None on the first pass."""
+    """What a follow-up pass should look for. The node that sent the graph back here (Judge, Evidence
+    Checker or Human Review) wrote it to research_focus. None on the first pass."""
     if not state.get("evidence"):
         return None
-    verdict = state.get("verdict") or {}
-    focus = list(verdict.get("required_evidence", []))
-    if verdict.get("decision") == "request_clarification":
-        # The clarification node may reword the Judge's questions, so don't match question text:
-        # the planner already sees every answer in <clarification_answers>.
-        focus.append("The user just answered the Judge's follow-up questions (see <clarification_answers>): "
-                     "re-check what those answers change.")
+    focus = list(state.get("research_focus") or [])
+    if not focus:   # defensive: should not happen, fall back to the Judge's open questions
+        focus = list((state.get("verdict") or {}).get("required_evidence", []))
     return focus or None
 
 
@@ -78,6 +74,7 @@ def research_node(state: ArenaState) -> dict:
         "evidence_gaps": gaps,     # replaced each pass: these are the CURRENT open gaps
         "perspective_summaries": summaries,
         "research_summary": combined or "No evidence was retrieved.",
+        "research_focus": [],      # consumed
         "status": "debating",
         "current_node": "research",
     }

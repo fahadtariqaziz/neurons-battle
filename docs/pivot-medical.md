@@ -55,8 +55,14 @@ never invents doses, never advises stopping medication, and flags red-flag sympt
 - **Judge**: 3 parallel calls score plans 0–10 per criterion; Python computes weighted totals, picks the
   top plan per lane, and decides routing (proceed / more research / clarification / insufficient) within
   the loop limits.
-- **Evidence Checker, Human Review, Final Report, Completion, Error Recovery**: as in the original brief,
-  applied per perspective (Phase 6).
+- **Evidence Checker**: one call per winning plan; every factual claim gets a verification status; material
+  gaps trigger one focused research pass when loops are allowed, otherwise they are listed as unresolved.
+- **Human Review**: interrupt with the three winners; approve / select_plan / reject / request_debate_round /
+  request_more_research / modify_profile / add_context, all bounded by the loop limits.
+- **Final Report**: one best plan per perspective with scores, cited evidence and verification status, where the
+  perspectives agree and differ, unsupported claims, unresolved questions, next steps, disclaimer.
+- **Completion / Error Recovery**: final status + metrics; any node failure becomes a safe error record,
+  transient errors are retried with backoff, permanent ones end the run as `failed`.
 
 ## Package name
 The Python package is still `ai_decision_arena` and the LangSmith project is still `ai-decision-arena`

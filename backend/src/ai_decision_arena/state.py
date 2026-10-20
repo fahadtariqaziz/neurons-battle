@@ -19,6 +19,8 @@ class ArenaState(TypedDict, total=False):
     thread_id: str
     status: WorkflowStatus               # editor warns on typos like "complete"
     current_node: str                    # last node that ran, for the frontend
+    started_at: str                      # ISO time, set by intake
+    active_seconds: float                # time spent inside nodes (pauses excluded); added by the error wrapper
 
     # --- case understanding -------------------------------------------- (intake)
     question: str                        # the user's original text, never rewritten
@@ -54,6 +56,8 @@ class ArenaState(TypedDict, total=False):
     conflicting_claims: list[dict]       # ConflictingClaim
     rejected_sources: list[dict]         # {url, title, perspective, reason}: kept for transparency
     research_retry_count: int            # +1 only when going BACK to research (first pass = 0)
+    research_focus: list[str]            # what the next research pass must look for; written by the node that
+                                         # sends the graph back (judge / evidence_checker / human_review), cleared by research
 
     # --- debate ------------------------------------------- (proposer/critic/judge)
     care_plans: list[dict]               # CarePlan, 2-3 per perspective      (proposer)
@@ -65,16 +69,26 @@ class ArenaState(TypedDict, total=False):
     debate_round: int                    # +1 each time the proposer starts a new round
 
     # --- verification ------------------------------------------ (evidence_checker)
-    verification_results: list[dict]     # ClaimVerification
+    verification_results: list[dict]     # ClaimVerification for the current winning plans
+    checker_verdict: dict                # {decision, reason, gaps_by_lane, summaries}
+    # (evidence[].verification_status is also written here)
 
     # --- human review ---------------------------------------------- (human_review)
     human_action: HumanAction
     user_feedback: str
+    human_review_round_count: int
+    human_review_next: str               # "final_report" | "proposer" | "research"
+    human_selected_plan_id: str | None
 
     # --- output ------------------------------------------- (final_report/completion)
     final_report: dict                   # FinalReport
-    unresolved_questions: list[str]
+    unresolved_questions: list[str]      # appended by evidence_checker, finalized by final_report
+    completed_at: str
+    metrics: dict                        # durations, rounds, counts (completion)
 
     # --- errors ------------------------------------------------ (error_recovery)
-    error: dict | None                   # ErrorRecord
+    error: dict | None                   # ErrorRecord of the CURRENT failure (None after recovery)
     failed_node: str                     # which node to retry after recovery
+    error_retry_counts: dict[str, int]   # node -> retries used
+    error_history: list[dict]            # every ErrorRecord, for the report / API
+    recovery_action: str                 # "retry" | "fail"

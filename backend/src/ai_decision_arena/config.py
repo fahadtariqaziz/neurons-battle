@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     max_research_retries: int = Field(default=2, ge=0, le=5)
     max_debate_rounds: int = Field(default=2, ge=1, le=5)
 
+    # --- error recovery & session budget ---
+    max_node_retries: int = Field(default=2, ge=0, le=5, description="Error Recovery retries per node (on top of SDK retries).")
+    error_backoff_base_seconds: float = Field(default=1.0, ge=0, description="Backoff = base * 2**attempt.")
+    session_time_budget_seconds: float = Field(default=900, gt=0, description="Active (non-paused) seconds after which no new loops or retries start.")
+
     # --- research limits (cost control). Research runs 3 lanes: research / doctor / patient ---
     queries_per_perspective: int = Field(default=3, ge=1, le=6)
     max_results_per_query: int = Field(default=5, ge=1, le=20)

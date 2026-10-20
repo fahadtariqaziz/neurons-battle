@@ -51,6 +51,8 @@ Rules:
   The user must still get all three perspectives.
 - If <previous_criticisms> is non-empty this is a new debate round: fix those weaknesses, drop plans that
   cannot be defended, and keep what the critic accepted.
+- If <human_feedback> is non-empty, the user reviewed the previous plans and asked for changes: address the
+  feedback directly and say in the summary how the plan responds to it.
 """ + SAFETY_RULES
 
 
@@ -66,6 +68,7 @@ def _propose_lane(state: ArenaState, perspective: str, round_number: int) -> tup
 {evidence_block(evidence)}
 <evidence_gaps>{json.dumps([g for g in state.get("evidence_gaps", []) if g.startswith(f"[{perspective}]")], indent=2)}</evidence_gaps>
 <previous_criticisms>{criticisms_block(previous) if previous else "(none)"}</previous_criticisms>
+<human_feedback action="{state.get("human_action", "")}">{state.get("user_feedback", "") or "(none)"}</human_feedback>
 <debate_round>{round_number}</debate_round>"""
 
     out = call_structured(

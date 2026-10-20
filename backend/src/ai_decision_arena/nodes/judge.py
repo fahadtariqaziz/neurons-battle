@@ -15,6 +15,7 @@ import json
 from langsmith.utils import ContextThreadPoolExecutor
 
 from ai_decision_arena.config import RUBRIC_DESCRIPTIONS, get_settings
+from ai_decision_arena.limits import loops_allowed
 from ai_decision_arena.llm import call_structured
 from ai_decision_arena.progress import report
 from ai_decision_arena.prompting import (
@@ -92,8 +93,7 @@ def _criterion(score: PlanScore, name: str) -> float:
 
 
 def judge_node(state: ArenaState) -> dict:
-    settings = get_settings()
-    weights = settings.rubric_weights
+    weights = get_settings().rubric_weights
     condition = state.get("condition_name", "the condition")
     known_evidence = {e["evidence_id"] for e in state.get("evidence", [])}
     report("judge", "scoring plans on the rubric (3 lanes in parallel)")
@@ -151,14 +151,11 @@ def judge_node(state: ArenaState) -> dict:
         reasons.append(f"[{perspective}] {out.comparison}{note}")
 
     # --- Routing decision: Python has the final say, bounded by the loop limits -----------------
-    can_loop = state.get("debate_round", 1) < settings.max_debate_rounds          # another proposer run allowed?
+    # limits.loops_allowed applies the debate/research/clarification caps, the session time budget and the
+    # emergency rule (red flags → no automatic loops: every lane already leads with "seek care now").
+    can_debate, can_research, can_clarify, blocked = loops_allowed(state)
     if state.get("red_flags"):
-        # Emergency: every lane already leads with "seek care now". Another research pass or a
-        # clarification detour would delay that message by minutes for little gain, so no loops.
-        can_loop = False
         reasons.append("Red flags are present: no further research or clarification loops; continuing now.")
-    can_research = state.get("research_retry_count", 0) < settings.max_research_retries
-    can_clarify = state.get("clarification_round_count", 0) < settings.max_clarification_rounds
     blocking = [p for p, v in status.items() if v in ("insufficient", "no_plans")]   # 'declined' never blocks
     all_sufficient = not blocking
     wants_clarification = bool(questions) and not all_sufficient
@@ -169,24 +166,20 @@ def judge_node(state: ArenaState) -> dict:
         declined = [p for p, v in status.items() if v == "declined"]
         reasons.append("Every perspective that offered a plan has a defensible best plan"
                        + (f" (no plan from: {', '.join(declined)})." if declined else "."))
-    elif wants_clarification and can_loop and can_research and can_clarify:
+    elif wants_clarification and can_clarify:
         decision, status_text = "request_clarification", "debating"
         update["research_retry_count"] = state.get("research_retry_count", 0) + 1
+        update["research_focus"] = required + ["The user just answered the Judge's follow-up questions "
+                                               "(see <clarification_answers>): re-check what those answers change."]
         reasons.append("The user's answers would change the ranking: asking before researching again.")
-    elif can_loop and can_research:
+    elif can_research:
         decision, status_text = "request_more_research", "researching"
         update["research_retry_count"] = state.get("research_retry_count", 0) + 1
+        update["research_focus"] = list(required)
         reasons.append("Evidence is insufficient for at least one perspective: running a focused follow-up search.")
     else:
         decision, status_text = "insufficient_evidence", "verifying"
-        limits = []
-        if state.get("red_flags"):
-            limits.append("red flags present")
-        elif not can_loop:
-            limits.append(f"debate rounds ({settings.max_debate_rounds})")
-        if not can_research:
-            limits.append(f"research retries ({settings.max_research_retries})")
-        reasons.append(f"Evidence remains insufficient and the loop limits are reached ({', '.join(limits) or 'no loop possible'}): "
+        reasons.append(f"Evidence remains insufficient and the loop limits are reached ({', '.join(blocked) or 'no loop possible'}): "
                        "continuing with the uncertainty stated.")
 
     update["verdict"] = Verdict(

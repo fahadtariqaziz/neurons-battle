@@ -41,38 +41,40 @@ What changed and the concept mapping: `docs/pivot-medical.md`.
 Local machine (checked 2026-10-18): Python 3.13.12, uv installed, Node 22.22.1, PostgreSQL 16 (Homebrew).
 Python package is still named `ai_decision_arena` (see Open questions).
 
-## Graph design (11 logical nodes)
+## Graph design (11 logical nodes, all built)
 ```
 START → intake ──(red flags in first message)──► await_red_flag_ack (interrupt: continue / stop) ─┐
-          │ no                                              stop → END (stopped_by_user)       │ continue
+          │ no                                              stop → completion (stopped_by_user)  │ continue
           ▼◄───────────────────────────────────────────────────────────────────────────────────┘
       clarification ──(need_clarification? interrupt & loop, max 2 rounds)──┐
           │ no                                                              │
-          ├──(new red flags)──► await_red_flag_ack (continue → research / stop → END)
-          ▼                                                                 │
-                  research  (3 lanes: research / doctor / patient; parallel)            │
-                      ▼                                                                 │
-                  proposer → critic → judge ──(request_clarification)──► clarification ─┘
-                      ▲                 │
-                      └─(request_more_research, focused)
-                                        │ proceed / insufficient_evidence
-                                        ▼
-                               evidence_checker ──(material gap, retries left)──► research
-                                        ▼
-                                 human_review (interrupt) ──(revise / more research / new round, bounded)
-                                        │ approve
-                                        ▼
-                                  final_report → completion → END
+          ├──(new red flags, no decision yet)──► await_red_flag_ack (continue → research / stop → completion)
+          ▼
+      research (3 lanes: research / doctor / patient; parallel) ◄──────────────────────────────┐
+          ▼                                                                                    │
+      proposer → critic → judge ──(request_clarification)──► clarification                     │
+                             ├──(request_more_research, focused, bounded)──────────────────────┤
+                             │ proceed / insufficient_evidence                                 │
+                             ▼                                                                 │
+                      evidence_checker ──(material gap, loop allowed)──────────────────────────┤
+                             ▼                                                                 │
+                      human_review (interrupt) ──(request_more_research / modify_profile / add_context)┘
+                             │        └──(reject / request_debate_round)──► proposer
+                             │ approve / select_plan
+                             ▼
+                      final_report → completion → END
 
-Any node failure → error_recovery → (retry same node | completion with status=failed)
+Any node that raises → error stored in state → error_recovery ──(recoverable, retries left, budget left: backoff)──► same node
+                                                               └──(permanent)──► completion (status failed)
 ```
-Loop limits: debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a retry), clarification rounds ≤ 2.
-Because every judge-triggered loop starts a new debate round, with the defaults the judge can loop at most
-once (debate cap binds first). Raise `MAX_DEBATE_ROUNDS` to allow more.
+Loop limits (`limits.loops_allowed`): debate rounds ≤ 2, research retries ≤ 2 (first pass isn't a retry), clarification
+rounds ≤ 2, node retries ≤ 2 (backoff 1 s, 2 s), session active-time budget 900 s. A research pass always starts a new
+debate round, so with the defaults the system can loop at most once automatically. Red flags and an exhausted time budget
+block every automatic loop (the human can still ask for one at review, within the caps).
 
-Per-perspective design: Research tags every evidence item with a `perspective`. Proposer / Critic / Judge
-each run **three parallel LLM calls (one per lane)**. Plan ids are `research_a`, `doctor_b`, `patient_c`…
-The Judge's `verdict.winning_plan_ids` holds one winner per lane.
+Per-perspective design: Research tags every evidence item with a `perspective`. Proposer / Critic / Judge / Evidence
+Checker each run **three parallel LLM calls (one per lane)**. Plan ids are `research_a`, `doctor_b`, `patient_c`…
+The Judge's `verdict.winning_plan_ids` holds one winner per lane; the report shows those three.
 
 ## Implementation plan (small steps)
 
@@ -103,12 +105,13 @@ The Judge's `verdict.winning_plan_ids` holds one winner per lane.
 - [x] 5.6 [CLAUDE] Red-flag pause: `await_red_flag_ack` interrupt node (continue / stop) after intake or clarification whenever unacknowledged red flags exist. User decision 2026-10-20: "humans remain in control of high-risk decisions".
 - [x] 5.5 [CLAUDE] Live progress events (`progress.report`) in every node + `print_helpers.stream_graph` used by all run scripts. Built 2026-10-20 after the user asked for an "agents at work" view; same events will feed the frontend activity view (Phase 8/9).
 
-### Phase 6 — Verification & finishing nodes
-- [ ] 6.1 [CLAUDE] Evidence Checker: verify the claims of the 3 winning plans (+ runners-up) against stored evidence; statuses; route back to research if a material gap and retries remain.
-- [ ] 6.2 [CLAUDE] Human Review node (interrupt; validated `HumanReviewInput`: approve / reject / request_debate_round / request_more_research / modify_profile / add_context / select_plan).
-- [ ] 6.3 [CLAUDE] Final Report (3 `PerspectiveResult`s, agreements/differences, uncertainties, disclaimer) + Completion nodes.
-- [ ] 6.4 [CLAUDE] Error Recovery node + retries/backoff + per-session time budget.
-- [ ] 6.5 [YOU] Full CLI run end-to-end, screenshot LangSmith trace.
+### Phase 6 — Verification & finishing nodes ✅ built 2026-10-20 (awaiting user test + commit)
+- [x] 6.1 `nodes/evidence_checker.py`: one call per winning plan (3 lanes parallel) → `PlanVerification` (claims with status + is_material + material_gaps). Python stores `ClaimVerification`s, sets `evidence[].verification_status`, loops to research once if material gaps and loops allowed, else records them as `unresolved_questions`.
+- [x] 6.2 `nodes/human_review.py`: interrupt with a summary payload; `HumanReviewInput` validated; 7 actions with bounded routes; impossible choices re-interrupt with an error.
+- [x] 6.3 `nodes/final_report.py`: Python assembles `FinalReport` (3 `PerspectiveResult`s with scores, cited evidence + verification status, objections, unsupported claims, unresolved questions, methodology); ONE LLM call writes `ReportNarrative` (overview, agree/differ, uncertainties, next steps). `completion_node` sets the final status + metrics.
+- [x] 6.4 `nodes/error_recovery.py`: `recoverable(name)` wrapper on every node (exceptions → `ErrorRecord` in state, interrupts re-raised, `active_seconds` accumulated); guarded edges; `error_recovery_node` retries with backoff or fails; `limits.py` time budget.
+- [x] 6.5 [YOU] `run_report.py` (fast, cached) then `run_graph.py` end-to-end → verified 2026-10-20; commit.
+- [ ] 6.6 [CLAUDE] Fixes from 6.5 (see Next step).
 
 ### Phase 7 — PostgreSQL
 - [ ] 7.1 [YOU] Start Postgres, create database `ai_decision_arena`.
@@ -174,6 +177,13 @@ The Judge's `verdict.winning_plan_ids` holds one winner per lane.
 - 2026-10-20 (superseded by the above): `run_graph.py` STREAMS the graph (`stream_mode="updates"`): one line per finished node, red flags printed the moment intake/clarification record them, interrupts arrive as an `__interrupt__` chunk, final state read from `graph.get_state(config).values`. Pattern to reuse in the FastAPI layer (Phase 8) for live progress.
 - 2026-10-20: Design choice (open for user): when red flags are present the graph still researches and debates (plans lead with emergency guidance). Alternative: pause after clarification and ask whether to continue. See Open questions.
 - 2026-10-20: EMERGENCY RULE in the Proposer: when `red_flags` is non-empty each lane returns exactly ONE "Emergency first: ..." plan (urgent care now, then that lens's after-assessment guidance) instead of declining, so the user still gets three perspectives. Found in the secondary-diabetes run: doctor lane built an emergency plan while research and patient lanes declined → only one perspective. Declining remains for lanes with no usable evidence. The Critic is told an emergency-first single plan is correct and to check its urgency is unconditional.
+- 2026-10-20 (Phase 6): ERROR HANDLING = wrapper + guarded edges, not try/except per node. `recoverable(name)` converts any exception into `state.error` (safe `ErrorRecord`: node, exception type, category, message ≤500 chars, recoverable flag) and re-raises LangGraph's `GraphBubbleUp` (interrupts are control flow). `graph.connect()` makes every edge conditional with an `error_recovery` branch. Categories: invalid_input (never retried), invalid_llm_output / rate_limit / timeout / 5xx (retried with backoff 1 s, 2 s up to `MAX_NODE_RETRIES`), unknown = bug (never retried). `completion` and `error_recovery` themselves are not wrapped (pure Python, terminal).
+- 2026-10-20 (Phase 6): SESSION TIME BUDGET counts ACTIVE seconds only (time inside nodes, added by the wrapper), so a user who leaves a pause open for an hour is not penalised. Over budget → no new loops or retries (`limits.loops_allowed`, `time_budget_left`).
+- 2026-10-20 (Phase 6): ONE field for follow-up research: `research_focus`, written by whichever node sends the graph back (judge, evidence_checker, human_review) and cleared by research. Replaces the earlier "read verdict.required_evidence" logic.
+- 2026-10-20 (Phase 6): Evidence Checker verifies the three WINNING plans only (cost: 3 calls); runners-up stay unverified and the report says so via verification counts. Evidence verification status is aggregated from the claims that cite it (contradicted > unsupported > irrelevant; verified only if every citing claim is verified; mixed → partially_supported). Safety instructions ("seek care", "ask your doctor") are not claims.
+- 2026-10-20 (Phase 6): Human review actions are validated in Python against the limits: reject needs feedback; research-type actions need a research pass left (else the error lists what is still possible); `modify_profile`/`add_context` merge the facts then re-check (research if possible, else a debate round, else recorded only). Reject when no round is left → final report records the rejection (`is_conditional`).
+- 2026-10-20 (Phase 6): Final report `is_conditional` = Judge decision ≠ proceed, or any lane not sufficient, or an unverified material claim remains, or the user rejected, or red flags are present. Completion: `completed` / `completed_with_uncertainty` / `failed` (never completed without a report) / `stopped_by_user`.
+- 2026-10-20 (Phase 6): `run_report.py` injects the cached debate state with `graph.update_state(config, state, as_node="judge")` and continues the real graph from there (checker → review → report), so Phase 6 can be tested in ~1 minute without research.
 - 2026-10-20: RED-FLAG PAUSE (user decision: option 1, human in control). `nodes/red_flag_ack.py`: `pending_red_flags(state)` = red_flags minus `red_flags_acknowledged`. Two entry points: `route_after_intake` (emergency sign in the first message → pause BEFORE the questions) and `route_after_clarification` (answers revealed one → pause before research). Payload `{type: "red_flag", red_flags, resume_to, options}`; reply `{"action": "continue"|"stop"}` validated by `RedFlagResponse`, invalid → re-interrupt with `error`. `continue` → resumes at `red_flag_resume_to` and records the flags shown at that moment; `stop` → END with status `stopped_by_user`, nothing researched. The decision is made ONCE per session (`pending_red_flags` is empty once `red_flag_action == "continue"`): later flags are shown in the banner immediately but never pause again. First version re-paused for "new" flags; the user's test showed two prompts within a minute, partly because the LLM reworded already-acknowledged flags (text matching is not semantic). Clarification prompt now says: only genuinely new signs, never reword existing ones. Statuses added: `awaiting_red_flag_ack`, `stopped_by_user`. No LLM in the pause node.
 - 2026-10-20: After "continue" the emergency rules still apply (one emergency-first plan per lane, no Judge loops): consent to continue is not consent to wait twice as long.
 - 2026-10-20: EMERGENCY = NO LOOPS in the Judge: when `red_flags` is non-empty, `can_loop` is False, so an insufficient lane yields `insufficient_evidence` (continue with uncertainty) instead of a research retry or clarification detour. Found in the "unsure type + deep breathing" run: a second research pass + debate added 2.3 min after the user had already been told to seek urgent care. The Judge prompt also says to judge emergency-first plans on their urgent-care guidance; thin after-assessment evidence lowers evidence_quality rather than sufficiency.
@@ -202,9 +212,16 @@ The Judge's `verdict.winning_plan_ids` holds one winner per lane.
 - 2026-10-20: User chose option 1 for emergencies (pause, human decides) and a SINGLE commit. 5.6 built: pause node + routes + statuses + CLI handling (`continue`/`stop`, stop prints a closing message and skips research/debate output). Offline tests: answers-revealed flags → pause (resume_to research) → invalid reply re-pauses with error → continue → no loop; stop → END `stopped_by_user` with nothing researched; intake-detected flags → pause BEFORE the clarification LLM runs → continue → questions → no second pause; streaming order incl. the pause.
 - 2026-10-20: User tested the pause with "diabetes + vomiting + fast breathing": banner + pause at 5 s before any questions ✔, wrong reply "yes go" re-prompted with the error ✔, continue → questions ✔. Then answers revealed "chest" and the graph paused AGAIN ("2 times continue"): fixed → one decision per session; later flags only show. Offline test updated (new flag after continue → no second pause).
 - 2026-10-20: User re-ran the emergency scenario after the pause-once fix: ONE pause (5 s, before questions), continue → 2 clarification rounds ("some" → asked which), later red flags (chest pain) printed only, research 66 s / 27 evidence, three "Emergency first" plans (7.10 / 7.30 / 7.30), `proceed`, no loop, ~2 min after continue. Critic findings used for two prompt tweaks in the Proposer emergency rule: never drive yourself (unconditional), don't anchor on one diagnosis (chest pain + fast breathing may be cardiac). 5.6 verified by user → ready for the single commit.
+- 2026-10-20: **Phase 6 built in one pass** (user request): evidence_checker, human_review, final_report + completion, error_recovery + wrapper + guarded edges + time budget, `limits.py`, `run_report.py`, `print_report` / `ask_human_review`, `run_graph.py` now ends with the report and saves `.cache/final_state.json` + `final_report.json`. Verified mid-graph injection (`update_state(as_node=)`) and that the wrapper re-raises interrupts before building. Offline suite (fakes, 7 scenarios): normal flow → `completed` with a 3-perspective report; checker gap → focused research pass → gap persists → `completed_with_uncertainty` with the claim listed as unsupported/unresolved; reject → proposer round → approve; modify_profile → research → review; transient error retried once → completed with `errors=1`; permanent error → `failed`; invalid input → `failed` (not retried); red flags continue → `completed_with_uncertainty`, stop → `stopped_by_user` via completion; bad review replies re-prompt. Streaming test: judge → checker → review → report → completion with progress lines.
+- 2026-10-20: **6.5 verified by user.** `run_report.py` (cached type 2): checker 25 s (research 7/10 verified, doctor 9/10, patient 5/10), approve → report 10 s → `completed_with_uncertainty`; report reads well (agree/differ/uncertainties/next steps all grounded). `run_graph.py` (type 1, "yes weekly" insulin, deep breathing): 2 clarification rounds, red-flag pause → continue, research 46 s / 26 evidence, three emergency-first plans (7.10 / 7.85 / 6.65), checker found 2 material gaps → NOT looped (red flags) → listed as unresolved ✔, review showed "another round / more research NOT possible (red flags present)" ✔, select_plan patient_a → `completed_with_uncertainty`, 153 s active, 0 errors. Issues found (→ 6.6): (1) `condition_name` / `case_summary` stay as intake wrote them ("diabetes", "no details about type…") although clarification learned "type 1"; (2) red flags are append-only, so the round-1 flag "no insulin reported" survives after the user said "yes weekly"; profile also keeps contradictory `current_treatment: no` next to `insulin_use: yes, weekly`; (3) `select_plan` only adds one line to the report; (4) CLI prints "▶ Resuming. Research (~1 min)…" before a 2nd clarification round too; (5) CLI cuts unresolved questions at 160/220 chars (JSON is complete).
 
 ## ▶ Next step
-**[YOU]** Make the SINGLE commit (everything since `1d77869`):
-`Pivot to health perspectives: 3-lane research, debate nodes, live progress, red-flag pause`
+**[YOU]** Commit Phase 6 (verified): `Add Phase 6: evidence checker, human review, final report, completion, error recovery`
 
-Then **6.1 [CLAUDE]** Evidence Checker: verify the winning plans' claims against stored evidence (statuses verified / partially_supported / unsupported / contradicted / irrelevant / unavailable), record rejected evidence with reasons, route back to research on a material gap if retries remain (never when red flags are present), else continue with uncertainty.
+**[CLAUDE] 6.6 — fixes from the 6.5 run** (proposed, waiting for the user's go-ahead):
+1. Clarification may refresh `condition_name` + `case_summary` when answers sharpen them (e.g. "diabetes" → "type 1 diabetes").
+2. Clarification may mark red flags as superseded when later answers contradict them (keep the record, don't show or count it as active), and resolve contradictory profile facts.
+3. `select_plan`: show the chosen plan first / marked "your choice" in the report and have the narrative focus its next steps on it.
+4. CLI: only print the "Research (~1 min)…" hint when research is actually next; don't cut unresolved questions.
+
+Then **Phase 7 — PostgreSQL**: 7.1 [YOU] start Postgres + create database `ai_decision_arena`; 7.2 [CLAUDE] PostgresSaver checkpointer + resume after restart; 7.3 SQLAlchemy models + Alembic.

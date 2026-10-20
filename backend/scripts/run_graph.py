@@ -9,15 +9,16 @@ The graph is STREAMED (see print_helpers.stream_graph): nodes emit progress even
 the moment they are recorded, instead of waiting several minutes for the final result.
 """
 
+import json
 import sys
 import uuid
+from pathlib import Path
 
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from ai_decision_arena.graph import build_graph
-from ai_decision_arena.nodes.intake import InvalidInputError
-from print_helpers import print_case, print_debate, print_red_flags, print_research, stream_graph
+from print_helpers import ask_human_review, print_case, print_red_flags, print_report, stream_graph
 
 question = " ".join(sys.argv[1:]) or "I have diabetes"
 
@@ -37,10 +38,7 @@ print(f"thread_id: {thread_id}\n")
 
 shown_red_flags: set[str] = set()
 
-try:
-    result, payload = stream_graph(graph, {"question": question}, config, shown_red_flags)
-except InvalidInputError as exc:
-    sys.exit(f"❌ Rejected: {exc}")
+result, payload = stream_graph(graph, {"question": question}, config, shown_red_flags)
 
 # While the graph is paused, the stream ends with an "__interrupt__" update. Two kinds of pause:
 # "red_flag" (a human must decide whether to go on) and "clarification" (questions to answer).
@@ -49,6 +47,11 @@ while payload is not None:
     print(f"\n⏸  Paused at node: {snapshot.next}  |  status: {snapshot.values.get('status')}")
     if payload.get("error"):
         print(f"⚠️  {payload['error']}")
+
+    if payload.get("type") == "human_review":
+        reply = ask_human_review(payload)
+        result, payload = stream_graph(graph, Command(resume=reply), config, shown_red_flags)
+        continue
 
     if payload.get("type") == "red_flag":
         print("\n🚨 The warning above needs your decision. This tool gives information only, not medical care.")
@@ -66,6 +69,9 @@ while payload is not None:
     result, payload = stream_graph(graph, Command(resume={"answers": answers}), config, shown_red_flags)
 
 print(f"\n✅ Finished with status: {result['status']}")
+if result["status"] == "failed":
+    err = result.get("error") or {}
+    sys.exit(f"❌ {err.get('category', 'error')} in {err.get('node', '?')}: {err.get('message', '')}")
 print_red_flags(result)
 if result["status"] == "stopped_by_user":
     print("🛑 Stopped at your request before any research. Please seek medical care now; "
@@ -73,5 +79,11 @@ if result["status"] == "stopped_by_user":
     print_case(result)
     sys.exit(0)
 print_case(result)
-print_research(result)
-print_debate(result)
+print_report(result)
+
+CACHE_DIR = Path(__file__).resolve().parent.parent / ".cache"
+CACHE_DIR.mkdir(exist_ok=True)
+(CACHE_DIR / "final_state.json").write_text(json.dumps(result, indent=2, default=str))
+(CACHE_DIR / "final_report.json").write_text(json.dumps(result.get("final_report"), indent=2, default=str))
+print(f"\n💾 Full state and report saved to {CACHE_DIR}/final_state.json and final_report.json "
+      "(evidence, plans, criticisms and scores are all in there)")

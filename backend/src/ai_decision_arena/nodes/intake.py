@@ -7,7 +7,7 @@ health_profile, symptoms, constraints, missing_information, red_flags, counters,
 from ai_decision_arena.llm import call_structured
 from ai_decision_arena.progress import report
 from ai_decision_arena.prompting import SAFETY_RULES
-from ai_decision_arena.schemas import IntakeResult
+from ai_decision_arena.schemas import IntakeResult, utc_now
 from ai_decision_arena.state import ArenaState
 
 MIN_QUESTION_CHARS = 3        # "flu" is a valid start; clarification fills in the rest
@@ -84,6 +84,12 @@ def intake_node(state: ArenaState) -> dict:
         "clarification_round_count": 0,
         "research_retry_count": 0,
         "debate_round": 0,
+        "human_review_round_count": 0,
+        "research_focus": [],
+        "unresolved_questions": [],
+        "error_retry_counts": {},
+        "error_history": [],
+        "started_at": utc_now().isoformat(timespec="seconds"),
         "red_flags_acknowledged": [],
         "status": "awaiting_red_flag_ack" if result.red_flags else "intake",   # graph pauses first if needed
         "current_node": "intake",
