@@ -117,8 +117,9 @@ The Judge's `verdict.winning_plan_ids` holds one winner per lane; the report sho
 - [x] 6.9 [YOU] Checked 6.8 with `run_report.py` 2026-10-21 (refusal works; its message was missing → fixed).
 
 ### Phase 7 — PostgreSQL
-- [ ] 7.1 [YOU] Start Postgres, create database `ai_decision_arena`.
-- [ ] 7.2 [CLAUDE] Swap InMemorySaver → PostgresSaver; test resume after restart.
+- [x] 7.1 [YOU] Postgres 16 already running (Homebrew service, local `trust` auth); created database `ai_decision_arena` 2026-10-21.
+- [x] 7.2 [CLAUDE] `checkpointing.py` (`postgres_checkpointer()` → `PostgresSaver` + `setup()`), `run_graph.py` uses Postgres by default with `--resume <thread_id>` and `--memory`.
+- [ ] 7.2b [YOU] Stop `run_graph.py` at a pause (Ctrl+C), resume with `--resume`; commit.
 - [ ] 7.3 [CLAUDE] SQLAlchemy models + Alembic migrations (sessions, evidence, reports, feedback).
 
 ### Phase 8 — FastAPI backend
@@ -199,6 +200,8 @@ The Judge's `verdict.winning_plan_ids` holds one winner per lane; the report sho
 
 - 2026-10-21: select_plan accepts ONLY the Judge's three winners (user chose B over "any plan, swapped into the report"): a non-winner would have been accepted but silently vanished from the report.
 
+- 2026-10-21: Checkpoints in PostgreSQL via `langgraph-checkpoint-postgres` + `psycopg[binary]` (psycopg 3). `postgres_checkpointer()` is a context manager (open connection → `setup()` → yield → close); the graph must be used inside the with-block. LangGraph owns its 4 tables (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations`); our own tables come in 7.3 via Alembic. `run_graph.py` defaults to Postgres; `run_report.py` stays on InMemorySaver (cached demo).
+
 ## Open questions for user
 - (none right now; the emergency-behaviour question was answered 2026-10-20: pause and ask → built as 5.6)
 - Rename the Python package `ai_decision_arena` → e.g. `health_arena` (and LangSmith project)? Mechanical but touches every import and the uv project name. Claude's suggestion: do it in Phase 8 before the API exists, or never.
@@ -228,8 +231,17 @@ The Judge's `verdict.winning_plan_ids` holds one winner per lane; the report sho
 
 - 2026-10-21: **6.8 verified by user** (`run_report.py`, cached type 2): `research_b` and `winner` both refused and the menu re-shown, `research_a` accepted → ⭐ YOUR CHOICE first, overview names the choice. This run also exercised the checker loop live: patient lane gap → focused research pass (52 evidence) → debate round 2 → limits reached (2 rounds / 2 retries) → remaining gaps listed as "Unverified", `completed_with_uncertainty`, 258 s, 1 unsupported claim surfaced ("nocturia link stronger in men"). Bug: the refusal reason was not printed (`run_report.py` printed payload errors only for clarification) → fixed: `ask_human_review` prints the error right above "What do you want to do?"; `run_graph.py` no longer double-prints it for the review.
 
-## ▶ Next step
-**[YOU]** Commit 6.6–6.9: `Refine condition and withdraw contradicted red flags after clarification; selectable winners only at review`
-(Optional before committing: re-run `run_report.py`, choose 2 → `research_b` → expect `⚠️ Only the three shown plans can be selected: …` above the menu.)
+- 2026-10-21: **7.2 built.** `uv add langgraph-checkpoint-postgres psycopg[binary]`; `checkpointing.py`; `run_graph.py` rewritten: argparse (`question…`, `--resume THREAD_ID`, `--memory`), everything inside the saver's with-block, resume handles 3 cases (paused → re-show the pause from `snapshot.interrupts`, stopped mid-node → `stream_graph(None)`, finished → re-print), Ctrl+C / EOF at a pause prints the `--resume` command instead of a traceback. Real check (tracing off), ONE session over THREE processes: (1) new run → stopped at Q1; (2) `--resume` → same questions instantly (no LLM call), answered → research → debate → checker → stopped at review; (3) `--resume` → approve → report, `completed`, `active_seconds` 225.6 carried across processes. DB: 14 checkpoints, 1 thread.
 
-Then **Phase 7 — PostgreSQL**: 7.1 [YOU] start Postgres + create database `ai_decision_arena`; 7.2 [CLAUDE] PostgresSaver checkpointer + resume after restart; 7.3 SQLAlchemy models + Alembic.
+- 2026-10-21: User's 7.2b try: Ctrl+C pressed WHILE clarification was running (not at a pause) → friendly message printed, but Python waited for the in-flight Claude call in LangGraph's worker thread and a 3rd Ctrl+C printed a `threading._shutdown` traceback; then `--resume` without an id failed. Fixed: one try/except around the whole run (new session, resume, pauses) → `stop()` prints the resume command and exits with `os._exit(130)` (doesn't wait for worker threads; last finished step is already saved); `--resume` with no id = latest session (`saver.list(None, limit=1)`, checkpoint ids are time-ordered). Verified: latest = the user's session, `next=('clarification',)`, 0 interrupts, all 6 answers saved → resume re-runs clarification from the answers.
+
+## ▶ Next step
+**[YOU] 7.2b — try stop & resume, then commit.** From `backend/`:
+```
+uv run python scripts/run_graph.py                      # answer the questions, then press Ctrl+C at the review menu
+uv run python scripts/run_graph.py --resume             # latest session (or --resume <thread_id>): the review menu comes back, no re-run
+psql -U postgres -d ai_decision_arena -c "select thread_id, count(*) from checkpoints group by thread_id;"
+```
+Commit: `Phase 7.2: PostgreSQL checkpointer with resume across restarts`
+
+Then **7.3 [CLAUDE]** SQLAlchemy models + Alembic (our own tables: sessions, evidence, reports, feedback).

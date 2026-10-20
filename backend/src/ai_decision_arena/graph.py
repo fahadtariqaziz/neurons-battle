@@ -108,7 +108,7 @@ def guarded(route: Callable[[ArenaState], str] | str):
 # --- graph ----------------------------------------------------------------------------
 
 def build_graph(checkpointer: BaseCheckpointSaver | None = None):
-    """A checkpointer is required for interrupt()/resume (InMemorySaver now, PostgreSQL in Phase 7)."""
+    """A checkpointer is required for interrupt()/resume: PostgresSaver (checkpointing.py) or InMemorySaver for demos."""
     builder = StateGraph(ArenaState)
     for name, fn in NODES.items():
         builder.add_node(name, recoverable(name)(fn))
