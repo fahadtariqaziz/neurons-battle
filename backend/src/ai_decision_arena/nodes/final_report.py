@@ -6,12 +6,17 @@ methodology); ONE LLM call writes the human-readable parts (overview, agreements
 uncertainties, next steps) from those facts only.
 
 Completion: sets the final status (completed / completed_with_uncertainty / failed / stopped_by_user),
-records metrics, and never marks a run completed without a report.
+records metrics, saves session + evidence + report to the app tables (db/repository.py), and never marks
+a run completed without a report that was actually saved.
 """
 
 import json
 from datetime import datetime, timezone
 
+from langchain_core.runnables import RunnableConfig
+
+from ai_decision_arena.config import get_settings
+from ai_decision_arena.db.repository import save_completion
 from ai_decision_arena.llm import call_structured
 from ai_decision_arena.progress import report
 from ai_decision_arena.prompting import SAFETY_RULES, user_case_block
@@ -22,6 +27,7 @@ from ai_decision_arena.schemas import (
     EvidenceRef,
     FinalReport,
     PerspectiveResult,
+    ErrorRecord,
     PlanScore,
     ReportNarrative,
 )
@@ -180,8 +186,9 @@ def final_report_node(state: ArenaState) -> dict:
     }
 
 
-def completion_node(state: ArenaState) -> dict:
-    """Terminal node: final status + metrics. Pure Python, so it is not wrapped by error recovery."""
+def completion_node(state: ArenaState, config: RunnableConfig) -> dict:
+    """Terminal node: final status + metrics + save to the app tables. Not wrapped by error recovery:
+    a failed save is handled here (status failed, error recorded; the report stays in the checkpoint)."""
     final = state.get("final_report")
     if state.get("status") == "stopped_by_user":
         status = "stopped_by_user"
@@ -200,10 +207,25 @@ def completion_node(state: ArenaState) -> dict:
         "errors": len(state.get("error_history", [])),
         "started_at": state.get("started_at"),
     }
-    report("completion", f"status: {status}")
-    return {
+    update = {
         "status": status,
         "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "metrics": metrics,
         "current_node": "completion",
     }
+
+    if get_settings().persist_results:
+        thread_id = config["configurable"]["thread_id"]
+        try:
+            save_completion(thread_id, state, status, metrics)
+            report("completion", f"saved session, {len(state.get('evidence', []))} evidence"
+                                 + (" and the report" if final else "") + " to the database")
+        except Exception as exc:   # never "completed" without a saved report
+            error = ErrorRecord(node="completion", operation="save_completion", category="database",
+                                message=f"{type(exc).__name__}: {str(exc)[:400]}", recoverable=False)
+            report("completion", f"could not save to the database ({type(exc).__name__}); status failed")
+            update |= {"status": "failed", "error": error.model_dump(mode="json"),
+                       "error_history": list(state.get("error_history", [])) + [error.model_dump(mode="json")]}
+
+    report("completion", f"status: {update['status']}")
+    return update

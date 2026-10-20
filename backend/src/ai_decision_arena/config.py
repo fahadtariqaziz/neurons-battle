@@ -85,6 +85,7 @@ class Settings(BaseSettings):
 
     # --- infrastructure (used from Phase 7/8) ---
     database_url: str = "postgresql://postgres:password@localhost:5432/ai_decision_arena"
+    persist_results: bool = True   # completion saves session/evidence/report to the app tables (PERSIST_RESULTS=false to skip)
     frontend_url: str = "http://localhost:3000"
     backend_url: str = "http://localhost:8000"
 
