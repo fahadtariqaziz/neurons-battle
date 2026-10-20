@@ -58,6 +58,12 @@ def _winner_summary(state: ArenaState, perspective: str) -> dict:
     }
 
 
+def _winner_ids(state: ArenaState) -> set[str]:
+    """The Judge's winner per lane. Only these appear in the report, so only these can be selected
+    (user decision 2026-10-21: a selected non-winner would silently vanish from the report)."""
+    return {pid for pid in (state.get("verdict") or {}).get("winning_plan_ids", {}).values() if pid}
+
+
 def _payload(state: ArenaState) -> dict:
     can_debate, can_research, _, blocked = loops_allowed(state)
     return {
@@ -65,7 +71,7 @@ def _payload(state: ArenaState) -> dict:
         "round": state.get("human_review_round_count", 0) + 1,
         "red_flags": state.get("red_flags", []),
         "perspectives": [_winner_summary(state, p) for p in PERSPECTIVES],
-        "all_plan_ids": [p["plan_id"] for p in state.get("care_plans", [])],
+        "selectable_plan_ids": sorted(_winner_ids(state)),   # select_plan: only the shown winners
         "unresolved_questions": state.get("unresolved_questions", []),
         "options": ACTIONS,
         "limits": {"can_debate": can_debate, "can_research": can_research, "blocked_by": blocked},
@@ -75,7 +81,6 @@ def _payload(state: ArenaState) -> dict:
 def _apply(state: ArenaState, review: HumanReviewInput) -> tuple[str | None, dict]:
     """Validate the choice against the state and limits. Returns (error, update)."""
     can_debate, can_research, _, blocked = loops_allowed(state)
-    plan_ids = {p["plan_id"] for p in state.get("care_plans", [])}
     feedback = review.feedback.strip()
     update: dict = {
         "human_action": review.action,
@@ -89,8 +94,9 @@ def _apply(state: ArenaState, review: HumanReviewInput) -> tuple[str | None, dic
         return None, update | {"human_review_next": "final_report", "status": "reporting"}
 
     if review.action == "select_plan":
-        if review.selected_plan_id not in plan_ids:
-            return f"selected_plan_id must be one of {sorted(plan_ids)}.", {}
+        winners = _winner_ids(state)
+        if review.selected_plan_id not in winners:
+            return f"Only the three shown plans can be selected: {', '.join(sorted(winners))}.", {}
         return None, update | {"human_selected_plan_id": review.selected_plan_id,
                                "human_review_next": "final_report", "status": "reporting"}
 

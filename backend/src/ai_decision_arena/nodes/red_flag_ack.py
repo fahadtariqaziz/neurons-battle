@@ -24,10 +24,13 @@ from ai_decision_arena.state import ArenaState
 
 
 def pending_red_flags(state: ArenaState) -> list[str]:
-    """Red flags that still need a human decision: all of them until the user has decided once."""
+    """Red flags that still need a human decision: all of them until the user has decided once.
+    Withdrawn flags count too (marked as such): once something looked like an emergency, a human decides,
+    even if a later answer contradicted it. Withdrawing a flag never skips the pause."""
     if state.get("red_flag_action") == "continue":
         return []
-    return list(state.get("red_flags", []))
+    withdrawn = [f"{w['flag']}  [withdrawn after your answers: {w['reason']}]" for w in state.get("withdrawn_red_flags", [])]
+    return list(state.get("red_flags", [])) + withdrawn
 
 
 def await_red_flag_ack_node(state: ArenaState) -> dict:

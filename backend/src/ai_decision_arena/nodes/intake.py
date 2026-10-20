@@ -91,6 +91,7 @@ def intake_node(state: ArenaState) -> dict:
         "error_history": [],
         "started_at": utc_now().isoformat(timespec="seconds"),
         "red_flags_acknowledged": [],
+        "withdrawn_red_flags": [],
         "status": "awaiting_red_flag_ack" if result.red_flags else "intake",   # graph pauses first if needed
         "current_node": "intake",
     }

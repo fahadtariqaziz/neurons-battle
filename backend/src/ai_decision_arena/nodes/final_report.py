@@ -42,6 +42,9 @@ no new medical facts, no numbers that are not in the input, no doses. Keep each 
 overview: 4-6 sentences. next_steps: concrete questions to bring to a doctor and things to monitor.
 If a perspective has no plan, say so and why. If red flags are present, the first sentence of overview and the
 first next step must be to seek medical care now.
+If <selected_plan> is not empty, the user picked that plan to follow up on: name it in the overview (after any
+emergency sentence) and make the next steps (after any emergency step) about following that plan with a doctor.
+Still describe all three perspectives.
 """ + SAFETY_RULES
 
 
@@ -73,6 +76,7 @@ def _perspective_result(state: ArenaState, perspective: str) -> PerspectiveResul
         critic_key_objections=[f"[{p['severity']}/{p['category']}] {p['issue']}" for p in objections[:3]],
         verification_counts=counts,
         verification_notes=[f"{v['status']}: {v['claim']}" for v in checks[:6]],
+        is_user_choice=plan_id == state.get("human_selected_plan_id"),
     )
 
 
@@ -104,6 +108,7 @@ def _compact(result: PerspectiveResult) -> dict:
         "score": result.score.weighted_total if result.score else None,
         "confidence": result.score.confidence if result.score else None,
         "verification_counts": result.verification_counts, "critic_key_objections": result.critic_key_objections,
+        "is_user_choice": result.is_user_choice,
     }
 
 
@@ -113,6 +118,7 @@ def final_report_node(state: ArenaState) -> dict:
     checks = state.get("verification_results", [])
     unsupported = [f"[{v['perspective']}] {v['claim']}" for v in checks if v["status"] in ("unsupported", "contradicted")]
     verdict = state.get("verdict") or {}
+    selected = next((f"{r.perspective}: {r.plan.name}" for r in results if r.is_user_choice and r.plan), "")
 
     unresolved = list(state.get("unresolved_questions", []))
     for q in verdict.get("clarification_questions", []):
@@ -127,7 +133,8 @@ def final_report_node(state: ArenaState) -> dict:
 <verdict_reason>{verdict.get("reason", "")}</verdict_reason>
 <unsupported_claims>{json.dumps(unsupported, indent=1)}</unsupported_claims>
 <unresolved_questions>{json.dumps(unresolved, indent=1)}</unresolved_questions>
-<human_review action="{state.get("human_action", "")}">{state.get("user_feedback", "")}</human_review>""",
+<human_review action="{state.get("human_action", "")}">{state.get("user_feedback", "")}</human_review>
+<selected_plan>{selected}</selected_plan>""",
         max_tokens=3500,
         run_name="final_report_llm",
     )
@@ -161,6 +168,7 @@ def final_report_node(state: ArenaState) -> dict:
         human_action=state.get("human_action"),
         human_selected_plan_id=state.get("human_selected_plan_id"),
         red_flags=state.get("red_flags", []),
+        withdrawn_red_flags=[f"{w['flag']} ({w['reason']})" for w in state.get("withdrawn_red_flags", [])],
         disclaimer=DISCLAIMER,
     )
     report("final_report", "report ready" + (" (conditional)" if is_conditional else ""))

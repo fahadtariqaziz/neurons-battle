@@ -173,6 +173,11 @@ class IntakeResult(BaseModel):
 # Clarification
 # ---------------------------------------------------------------------------
 
+class WithdrawnRedFlag(BaseModel):
+    flag: str = Field(description="The EXACT text of a flag listed in <red_flags>, copied character for character.")
+    reason: str = Field(description='Which later answer of the user contradicts the flag, e.g. \'user answered "yes weekly" to insulin use\'.')
+
+
 class ClarificationResult(BaseModel):
     """Output of the Clarification node: do we need to ask the user something?"""
 
@@ -198,6 +203,19 @@ class ClarificationResult(BaseModel):
     new_red_flags: list[str] = Field(
         description="Symptoms revealed by the answers that may need urgent care (e.g. possible DKA signs, chest pain, "
                     "confusion), stated as the user said them. Empty list if none.",
+    )
+    withdrawn_red_flags: list[WithdrawnRedFlag] = Field(
+        description="Flags from <red_flags> whose FACTUAL PREMISE a later answer of the user directly contradicts "
+                    "(e.g. flag 'no insulin reported', user now says 'yes weekly'). Never withdraw a flag because a "
+                    "symptom seems mild or unlikely. When in doubt, keep it. Empty list if none.",
+    )
+    refined_condition_name: str = Field(
+        description='The condition named more precisely because of the answers (e.g. "type 1 diabetes" instead of '
+                    '"diabetes"), lowercase. Empty string if the answers do not make it more precise.',
+    )
+    refined_case_summary: str = Field(
+        description="One or two neutral sentences restating the user's situation INCLUDING what the answers revealed. "
+                    "Empty string if nothing material changed. Do not add facts.",
     )
     assumptions: list[str] = Field(
         description="When need_clarification is false: explicit assumptions for info that is still missing. "
@@ -623,6 +641,7 @@ class PerspectiveResult(BaseModel):
     verification_counts: dict[str, int] = Field(default_factory=dict, description="status -> number of claims")
     verification_notes: list[str] = Field(default_factory=list)
     unavailable_reason: str = Field(default="", description="Why there is no plan, when plan is None.")
+    is_user_choice: bool = Field(default=False, description="True if the user picked this plan at human review (select_plan).")
 
 
 class ReportNarrative(BaseModel):
@@ -658,6 +677,7 @@ class FinalReport(BaseModel):
     human_action: str | None = Field(default=None, description="The user's final review action.")
     human_selected_plan_id: str | None = Field(default=None, pattern=PLAN_ID_PATTERN)
     red_flags: list[str]
+    withdrawn_red_flags: list[str] = Field(default_factory=list, description='"flag (reason)" for flags later answers contradicted.')
     disclaimer: str
 
 

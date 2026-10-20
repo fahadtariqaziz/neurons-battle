@@ -40,6 +40,12 @@ def stream_graph(graph, graph_input, config, shown_red_flags: set | None = None)
                 if new_flags:                           # shown the moment a node records them
                     print_red_flags({"red_flags": new_flags})
                     shown.update(new_flags)
+                for w in update.get("withdrawn_red_flags") or []:
+                    if ("withdrawn", w["flag"]) not in shown:
+                        print(f"   ↩️  Red flag withdrawn after your answers: {w['flag']}\n      reason: {w['reason']}")
+                        shown.add(("withdrawn", w["flag"]))
+                if node == "clarification" and update.get("condition_name"):
+                    print(f"   🩺 condition now: {update['condition_name']}")
     return values, payload
 
 
@@ -65,6 +71,8 @@ def print_case(state: dict) -> None:
     print(f"   Assumptions: {state.get('assumptions')}")
     if state.get("red_flags"):
         print(f"   🚨 Red flags: {state['red_flags']}  → seek medical care promptly")
+    for w in state.get("withdrawn_red_flags") or []:
+        print(f"   ↩️  Withdrawn: {w['flag']}  ({w['reason']})")
 
 
 def print_research(state: dict) -> None:
@@ -197,11 +205,13 @@ def ask_human_review(payload: dict) -> dict:
     if payload.get("unresolved_questions"):
         print("\n  ❓ Unresolved:")
         for q in payload["unresolved_questions"][:8]:
-            print(f"     - {q[:160]}")
+            print(f"     - {q}")
     limits = payload.get("limits", {})
     print(f"\n  limits: another debate round {'possible' if limits.get('can_debate') else 'NOT possible'}, "
           f"more research {'possible' if limits.get('can_research') else 'NOT possible'}"
           + (f"  ({'; '.join(limits.get('blocked_by', []))})" if limits.get("blocked_by") else ""))
+    if payload.get("error"):            # the previous choice was refused: say why, right above the menu
+        print(f"\n  ⚠️  {payload['error']}")
     print("\n  What do you want to do?")
     for i, (_, label) in enumerate(MENU, start=1):
         print(f"    {i}. {label}")
@@ -211,7 +221,7 @@ def ask_human_review(payload: dict) -> dict:
     if action in ("reject", "request_more_research", "add_context"):
         reply["feedback"] = input("  Your feedback / what to look for:\n  > ").strip()
     elif action == "select_plan":
-        reply["selected_plan_id"] = input(f"  Plan id ({', '.join(payload.get('all_plan_ids', []))}):\n  > ").strip()
+        reply["selected_plan_id"] = input(f"  Plan id ({', '.join(payload.get('selectable_plan_ids', []))}):\n  > ").strip()
     elif action == "modify_profile":
         raw = input("  Changes as key: value, separated by ';' (e.g. age: 50; medications: metformin)\n  > ")
         reply["profile_changes"] = {k.strip(): v.strip() for k, v in
@@ -232,14 +242,20 @@ def print_report(state: dict) -> None:
     if r.get("red_flags"):
         print("🚨 Red flags:")
         for f in r["red_flags"]:
-            print(f"   - {f[:200]}")
+            print(f"   - {f}")
+    if r.get("withdrawn_red_flags"):
+        print("↩️  Withdrawn after your answers (shown for the record):")
+        for f in r["withdrawn_red_flags"]:
+            print(f"   - {f}")
     print(f"\n{r['overview']}\n")
     print(f"Method: {r['research_methodology']}")
     if r.get("human_action"):
         print(f"Human review: {r['human_action']}" + (f" → selected {r['human_selected_plan_id']}" if r.get("human_selected_plan_id") else ""))
 
-    for item in r["perspectives"]:
-        print(f"\n{'─' * 100}\n  {PERSPECTIVE_LABELS[item['perspective']]}")
+    # The plan the user picked at review (select_plan) is shown first.
+    for item in sorted(r["perspectives"], key=lambda i: not i.get("is_user_choice")):
+        choice = "   ⭐ YOUR CHOICE" if item.get("is_user_choice") else ""
+        print(f"\n{'─' * 100}\n  {PERSPECTIVE_LABELS[item['perspective']]}{choice}")
         plan = item.get("plan")
         if not plan:
             print(f"  (no plan) {item.get('unavailable_reason', '')[:300]}")
@@ -267,7 +283,7 @@ def print_report(state: dict) -> None:
     def section(title, items):
         print(f"\n{title}")
         for x in items or ["(none)"]:
-            print(f"   - {x[:220]}")
+            print(f"   - {x}")
 
     section("🤝 Where the perspectives agree:", r["where_perspectives_agree"])
     section("↔️  Where they differ:", r["where_perspectives_differ"])

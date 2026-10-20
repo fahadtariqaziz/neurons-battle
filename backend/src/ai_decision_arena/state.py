@@ -25,14 +25,15 @@ class ArenaState(TypedDict, total=False):
     # --- case understanding -------------------------------------------- (intake)
     question: str                        # the user's original text, never rewritten
     user_context: str                    # optional extra context from the form
-    condition_name: str                  # e.g. "type 2 diabetes" (as the user frames it)
+    condition_name: str                  # e.g. "type 2 diabetes" (as the user frames it; clarification may refine it)
     condition_category: str              # a ConditionCategory value, e.g. "metabolic_endocrine"
-    case_summary: str                    # neutral restatement (used for research queries)
+    case_summary: str                    # neutral restatement (used for research queries; clarification may refine it)
     health_profile: dict[str, str]       # e.g. {"age": "42", "medications": "metformin"}
     symptoms: dict[str, str]             # e.g. {"fatigue": "most afternoons"}
     constraints: dict[str, str]          # e.g. {"diet": "vegetarian", "budget": "low-cost"}
     missing_information: list[str]
-    red_flags: list[str]                 # stated symptoms that may need urgent care (clarification appends)
+    red_flags: list[str]                 # ACTIVE signs that may need urgent care (clarification appends / withdraws)
+    withdrawn_red_flags: list[dict]      # {"flag", "reason"}: contradicted by a later answer; kept for the record (clarification)
 
     # --- red-flag pause ------------------------------------------ (await_red_flag_ack)
     red_flags_acknowledged: list[str]    # flags shown when the user decided (record for the report)

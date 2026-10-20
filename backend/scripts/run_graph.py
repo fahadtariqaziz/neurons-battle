@@ -45,7 +45,7 @@ result, payload = stream_graph(graph, {"question": question}, config, shown_red_
 while payload is not None:
     snapshot = graph.get_state(config)
     print(f"\n⏸  Paused at node: {snapshot.next}  |  status: {snapshot.values.get('status')}")
-    if payload.get("error"):
+    if payload.get("error") and payload.get("type") != "human_review":   # the review menu prints its own
         print(f"⚠️  {payload['error']}")
 
     if payload.get("type") == "human_review":
@@ -64,7 +64,9 @@ while payload is not None:
 
     print(f"\n🤔 Clarification round {payload['round']}. Press Enter to skip a question.\n")
     answers = {q: input(f"Q{i}: {q}\n> ") for i, q in enumerate(payload["questions"], start=1)}
-    print("\n▶  Resuming. Research (~1 min) and debate (~2-3 min) run next; one line per finished node:\n")
+    # We don't know yet whether clarification will ask again, so don't promise research.
+    print("\n▶  Resuming. Checking your answers first; if no more questions are needed, research (~1 min) "
+          "and debate (~2-3 min) follow. One line per finished node:\n")
     # Resume the SAME thread: the paused node continues, interrupt() returns this value.
     result, payload = stream_graph(graph, Command(resume={"answers": answers}), config, shown_red_flags)
 
