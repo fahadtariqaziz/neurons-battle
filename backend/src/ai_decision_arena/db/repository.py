@@ -4,6 +4,7 @@ saving the same session twice (a retry, a repeated request) updates rows instead
 
 from datetime import datetime, timezone
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from ai_decision_arena.db.engine import session_factory
@@ -87,3 +88,10 @@ def save_completion(thread_id: str, state: dict, status: str, metrics: dict) -> 
                 set_={"status": stmt.excluded.status, "is_conditional": stmt.excluded.is_conditional,
                       "report_json": stmt.excluded.report_json},
             ))
+
+
+def list_sessions(limit: int = 20) -> list[DecisionSession]:
+    """Newest sessions first, for the frontend's "recent sessions" list (Phase 9)."""
+    with session_factory()() as db:
+        rows = db.execute(select(DecisionSession).order_by(DecisionSession.created_at.desc()).limit(limit)).scalars()
+        return list(rows)

@@ -77,6 +77,18 @@ export interface ErrorInfo {
   message: string;
 }
 
+/** Small numbers shown next to the pipeline (all read from the checkpoint). */
+export interface Counters {
+  clarification_rounds: number;
+  research_passes: number;
+  debate_round: number;
+  evidence: number;
+  care_plans: number;
+  claims_checked: number;
+  human_reviews: number;
+  errors: number;
+}
+
 export interface DecisionStatus {
   thread_id: string;
   run_state: RunState;
@@ -88,6 +100,150 @@ export interface DecisionStatus {
   progress: ProgressLine[]; // lost when the server restarts
   error: ErrorInfo | null;
   has_report: boolean;
+  current_node: string | null; // last node that finished
+  next_nodes: string[]; // while running, [0] is the node in progress
+  started_at: string | null;
+  active_seconds: number;
+  counters: Counters;
+}
+
+// --- live snapshot (GET /live): everything produced so far -----------------------------------
+
+export interface CaseView {
+  condition_name: string | null;
+  condition_category: string | null;
+  case_summary: string | null;
+  user_context: string;
+  health_profile: Record<string, string>;
+  symptoms: Record<string, string>;
+  constraints: Record<string, string>;
+  missing_information: string[];
+  assumptions: string[];
+  clarification_answers: Record<string, string>;
+  red_flags: string[];
+  withdrawn_red_flags: { flag: string; reason: string }[];
+  red_flag_action: string | null;
+}
+
+export interface ResearchView {
+  passes: number;
+  queries: string[];
+  evidence_by_perspective: Record<string, number>;
+  evidence_gaps: string[];
+  conflicting_claims: { topic: string; evidence_ids: string[]; description: string }[];
+  rejected_count: number;
+  perspective_summaries: Record<string, string>;
+  research_focus: string[];
+}
+
+export type Level = "low" | "medium" | "high";
+
+export interface CriticismPoint {
+  category: string;
+  issue: string;
+  severity: Level;
+  basis: "evidence" | "clinical_reasoning";
+  is_verified_problem: boolean;
+  evidence_ids: string[];
+  suggested_improvement: string;
+}
+
+export interface Criticism {
+  plan_id: string;
+  points: CriticismPoint[];
+  overall_assessment: string;
+}
+
+export interface Verdict {
+  decision: "proceed" | "request_more_research" | "request_clarification" | "insufficient_evidence";
+  reason: string;
+  winning_plan_ids: Record<string, string>;
+  perspective_status: Record<string, string>; // sufficient | insufficient | no_plans | declined
+  required_evidence: string[];
+  clarification_questions: string[];
+}
+
+export interface DebateView {
+  round: number;
+  care_plans: CarePlan[];
+  criticisms: Criticism[];
+  scores: PlanScore[];
+  verdict: Verdict | null;
+  lane_status: Record<string, string>;
+  proposer_notes: Record<string, string>;
+}
+
+export interface ClaimVerification {
+  claim: string;
+  plan_id: string | null;
+  perspective: string;
+  evidence_ids: string[];
+  status: VerificationStatus;
+  notes: string;
+  is_anecdotal: boolean;
+  is_material: boolean;
+}
+
+export interface CheckerVerdict {
+  decision: string;
+  reason: string;
+  gaps_by_lane: Record<string, string[]>;
+  summaries: Record<string, string>;
+  claims_checked: number;
+}
+
+export interface VerificationView {
+  results: ClaimVerification[];
+  verdict: CheckerVerdict | null;
+  unresolved_questions: string[];
+}
+
+export interface ReviewView {
+  rounds: number;
+  action: string | null;
+  feedback: string;
+  selected_plan_id: string | null;
+}
+
+export interface ErrorRecord {
+  node: string;
+  operation: string;
+  category: string;
+  message: string;
+  retry_count: number;
+  recoverable: boolean;
+  occurred_at: string;
+}
+
+export interface LiveSnapshot {
+  thread_id: string;
+  run_state: RunState;
+  workflow_status: string | null;
+  current_node: string | null;
+  case: CaseView;
+  research: ResearchView;
+  debate: DebateView;
+  verification: VerificationView;
+  review: ReviewView;
+  errors: ErrorRecord[];
+  metrics: Record<string, unknown> | null;
+}
+
+// --- session list (GET /api/decisions) ---------------------------------------------------------
+
+export interface SessionSummary {
+  thread_id: string;
+  question: string;
+  condition_name: string | null;
+  status: string;
+  red_flag_count: number;
+  created_at: string;
+  updated_at: string | null;
+  completed_at: string | null;
+}
+
+export interface SessionList {
+  sessions: SessionSummary[];
 }
 
 export interface Accepted {
@@ -172,7 +328,7 @@ export interface CarePlan {
   benefits: string[];
   drawbacks_risks: string[];
   assumptions: string[];
-  difficulty: string;
+  difficulty: Level;
   safety_notes: string;
   supporting_evidence_ids: string[];
   evidence_gaps: string[];
@@ -184,7 +340,7 @@ export interface PlanScore {
   weighted_total: number | null;
   key_benefits: string[];
   key_drawbacks: string[];
-  confidence: string;
+  confidence: Level;
   confidence_reason: string;
   supporting_evidence_ids: string[];
   remaining_risks: string[];

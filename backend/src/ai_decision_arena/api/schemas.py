@@ -12,7 +12,16 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from ai_decision_arena.nodes.intake import MAX_CONTEXT_CHARS, MAX_QUESTION_CHARS, MIN_QUESTION_CHARS
-from ai_decision_arena.schemas import Evidence, FinalReport, HumanReviewInput
+from ai_decision_arena.schemas import (
+    CarePlan,
+    ClaimVerification,
+    Criticism,
+    Evidence,
+    FinalReport,
+    HumanReviewInput,
+    PlanScore,
+    Verdict,
+)
 
 # What the HTTP layer knows about a session (separate from the graph's own `status` field):
 # running     a background run is working on it right now
@@ -87,6 +96,19 @@ class ErrorInfo(BaseModel):
     message: str
 
 
+class Counters(BaseModel):
+    """Small numbers the frontend shows next to the pipeline (all read from the checkpoint)."""
+
+    clarification_rounds: int = 0
+    research_passes: int = 0        # first pass + retries (0 until research ran)
+    debate_round: int = 0
+    evidence: int = 0
+    care_plans: int = 0
+    claims_checked: int = 0
+    human_reviews: int = 0
+    errors: int = 0
+
+
 class DecisionStatus(BaseModel):
     thread_id: str
     run_state: RunState
@@ -99,6 +121,13 @@ class DecisionStatus(BaseModel):
                                          description="Live progress of THIS server process (lost on restart).")
     error: ErrorInfo | None = Field(default=None, description="The graph's stored error, or a crash of the background run.")
     has_report: bool = False
+    # Pipeline view (9.3): where the graph is, independent of the in-memory progress lines.
+    current_node: str | None = Field(default=None, description="Last node that finished (written by the node itself).")
+    next_nodes: list[str] = Field(default_factory=list,
+                                  description="Nodes LangGraph runs next. While running, the first one is the node in progress.")
+    started_at: str | None = None
+    active_seconds: float = Field(default=0.0, description="Time spent inside nodes so far (pauses excluded).")
+    counters: Counters = Field(default_factory=Counters)
 
 
 class ReportResponse(BaseModel):
@@ -118,3 +147,90 @@ class ErrorResponse(BaseModel):
     """Every error the API returns has this shape: {"error": {"code": ..., "message": ...}}."""
 
     error: ErrorInfo
+
+
+# --- live snapshot (GET /live): everything the agents produced so far ----------------------------
+
+class CaseView(BaseModel):
+    """What the system understood about the user (intake + clarification)."""
+
+    condition_name: str | None = None
+    condition_category: str | None = None
+    case_summary: str | None = None
+    user_context: str = ""
+    health_profile: dict[str, str] = Field(default_factory=dict)
+    symptoms: dict[str, str] = Field(default_factory=dict)
+    constraints: dict[str, str] = Field(default_factory=dict)
+    missing_information: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    clarification_answers: dict[str, str] = Field(default_factory=dict)
+    red_flags: list[str] = Field(default_factory=list)
+    withdrawn_red_flags: list[dict[str, str]] = Field(default_factory=list, description='{"flag", "reason"}')
+    red_flag_action: str | None = None
+
+
+class ResearchView(BaseModel):
+    passes: int = 0
+    queries: list[str] = Field(default_factory=list)
+    evidence_by_perspective: dict[str, int] = Field(default_factory=dict)
+    evidence_gaps: list[str] = Field(default_factory=list)
+    conflicting_claims: list[dict[str, Any]] = Field(default_factory=list)
+    rejected_count: int = 0
+    perspective_summaries: dict[str, str] = Field(default_factory=dict)
+    research_focus: list[str] = Field(default_factory=list, description="What the next (follow-up) pass must look for.")
+
+
+class DebateView(BaseModel):
+    round: int = 0
+    care_plans: list[CarePlan] = Field(default_factory=list)
+    criticisms: list[Criticism] = Field(default_factory=list)
+    scores: list[PlanScore] = Field(default_factory=list)
+    verdict: Verdict | None = None
+    lane_status: dict[str, str] = Field(default_factory=dict, description="perspective -> ok | thin | declined | no_evidence")
+    proposer_notes: dict[str, str] = Field(default_factory=dict)
+
+
+class VerificationView(BaseModel):
+    results: list[ClaimVerification] = Field(default_factory=list)
+    verdict: dict[str, Any] | None = None
+    unresolved_questions: list[str] = Field(default_factory=list)
+
+
+class ReviewView(BaseModel):
+    rounds: int = 0
+    action: str | None = None
+    feedback: str = ""
+    selected_plan_id: str | None = None
+
+
+class LiveSnapshot(BaseModel):
+    """The agents' work so far, straight from the checkpoint. Readable while running, paused or finished."""
+
+    thread_id: str
+    run_state: RunState
+    workflow_status: str | None = None
+    current_node: str | None = None
+    case: CaseView
+    research: ResearchView
+    debate: DebateView
+    verification: VerificationView
+    review: ReviewView
+    errors: list[dict[str, Any]] = Field(default_factory=list, description="Every ErrorRecord so far.")
+    metrics: dict[str, Any] | None = Field(default=None, description="Set by completion when the session finished.")
+
+
+# --- session list (GET /api/decisions) -----------------------------------------------------------
+
+class SessionSummary(BaseModel):
+    thread_id: str
+    question: str
+    condition_name: str | None = None
+    status: str
+    red_flag_count: int = 0
+    created_at: str
+    updated_at: str | None = None
+    completed_at: str | None = None
+
+
+class SessionList(BaseModel):
+    sessions: list[SessionSummary]

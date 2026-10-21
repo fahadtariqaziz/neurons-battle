@@ -4,7 +4,7 @@
 // Everything shown comes from the backend (run_state, progress, pending); the UI never guesses.
 // After a POST /resume, call refresh() to start polling again.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError, getDecision } from "@/lib/api/client";
 import type { DecisionStatus } from "@/lib/api/types";
@@ -16,6 +16,8 @@ export function useDecision(threadId: string) {
   const [status, setStatus] = useState<DecisionStatus | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [refreshCount, setRefreshCount] = useState(0); // changing it re-runs the effect below
+  const [lastUpdate, setLastUpdate] = useState<number | null>(null); // client time of the last successful GET
+  const firstSeenRunning = useRef<number | null>(null); // fallback stage start before any progress line exists
 
   useEffect(() => {
     let cancelled = false; // set when the page unmounts or threadId changes: ignore late answers
@@ -25,8 +27,11 @@ export function useDecision(threadId: string) {
       try {
         const next = await getDecision(threadId);
         if (cancelled) return;
+        if (next.run_state === "running") firstSeenRunning.current ??= Date.now();
+        else firstSeenRunning.current = null;
         setStatus(next);
         setError(null);
+        setLastUpdate(Date.now());
         if (next.run_state === "running") timer = setTimeout(load, POLL_MS);
       } catch (e) {
         if (cancelled) return;
@@ -45,5 +50,5 @@ export function useDecision(threadId: string) {
 
   const refresh = useCallback(() => setRefreshCount((n) => n + 1), []);
 
-  return { status, error, refresh };
+  return { status, error, refresh, lastUpdate, firstSeenRunning };
 }

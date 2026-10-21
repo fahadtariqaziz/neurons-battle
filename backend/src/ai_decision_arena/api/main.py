@@ -10,6 +10,8 @@ Flow:
     POST /api/decisions/{id}/resume       → answer the pending pause (or "continue" an interrupted run)
     GET  /api/decisions/{id}/report       → the final report, once finished
     GET  /api/decisions/{id}/evidence     → kept evidence with verification status
+    GET  /api/decisions/{id}/live         → everything produced so far (case, evidence counts, plans, scores, verdicts)
+    GET  /api/decisions                   → recent sessions (from the app tables)
 
 Status and pending pause are read from the checkpoint (graph.get_state), so they survive a restart.
 """
@@ -32,19 +34,28 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from ai_decision_arena.api.runner import GraphRunner, graph_config
 from ai_decision_arena.api.schemas import (
     Accepted,
+    CaseView,
     ClarificationResume,
     ContinueResume,
+    Counters,
     CreateDecisionRequest,
+    DebateView,
     DecisionStatus,
     ErrorResponse,
     EvidenceResponse,
     HumanReviewResume,
+    LiveSnapshot,
     PendingPause,
     ReportResponse,
+    ResearchView,
     ResumeRequest,
+    ReviewView,
+    SessionList,
+    SessionSummary,
+    VerificationView,
 )
 from ai_decision_arena.config import get_settings
-from ai_decision_arena.db.repository import save_session_status
+from ai_decision_arena.db.repository import list_sessions, save_session_status
 from ai_decision_arena.graph import build_graph
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -76,13 +87,20 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Health Decision Arena API",
-    version="0.8.0",
+    version="0.9.0",
     description="Start a session, answer its pauses, read the report. Health information only, not medical advice.",
     lifespan=lifespan,
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-# The Next.js dev server (Phase 9) runs on another port, so the browser needs CORS permission.
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"], allow_methods=["*"], allow_headers=["*"])
+# The Next.js dev server (Phase 9) runs on another port, so the browser needs CORS permission:
+# the configured FRONTEND_URL plus any localhost port (so a second dev server on :3001 works too).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[get_settings().frontend_url, "http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # --- errors: always {"error": {"code", "message"}} ---------------------------------------------
@@ -134,6 +152,20 @@ def _run_state(runner: GraphRunner, thread_id: str, snapshot) -> str:
     return "finished"
 
 
+def _counters(values: dict) -> Counters:
+    research_passes = values.get("research_retry_count", 0) + (1 if values.get("research_queries") else 0)
+    return Counters(
+        clarification_rounds=values.get("clarification_round_count", 0),
+        research_passes=research_passes,
+        debate_round=values.get("debate_round", 0),
+        evidence=len(values.get("evidence", [])),
+        care_plans=len(values.get("care_plans", [])),
+        claims_checked=len(values.get("verification_results", [])),
+        human_reviews=values.get("human_review_round_count", 0),
+        errors=len(values.get("error_history", [])),
+    )
+
+
 def _start(runner: GraphRunner, thread_id: str, graph_input) -> None:
     if not runner.start(thread_id, graph_input):
         raise ApiError(409, "already_running", "This session is still running; wait until it pauses or finishes.")
@@ -149,6 +181,29 @@ def create_decision(body: CreateDecisionRequest, request: Request):
         save_session_status(thread_id, {"question": body.question}, "intake")
     _start(request.app.state.runner, thread_id, {"question": body.question, "user_context": body.context})
     return Accepted(thread_id=thread_id)
+
+
+@app.get("/api/decisions", response_model=SessionList, tags=["decisions"])
+def list_decisions(limit: int = 20):
+    """Recent sessions, newest first (from decision_sessions, so only sessions saved with PERSIST_RESULTS=true)."""
+    try:
+        rows = list_sessions(limit=max(1, min(limit, 100)))
+    except Exception as exc:                        # noqa: BLE001 - the list is a convenience; sessions still work by URL
+        logging.getLogger(__name__).exception("could not list sessions")
+        raise ApiError(503, "database_unavailable", f"Could not read the session list: {type(exc).__name__}.") from exc
+    return SessionList(sessions=[
+        SessionSummary(
+            thread_id=r.thread_id,
+            question=r.question,
+            condition_name=r.condition_name,
+            status=r.status,
+            red_flag_count=len(r.red_flags or []),
+            created_at=r.created_at.isoformat(timespec="seconds"),
+            updated_at=r.updated_at.isoformat(timespec="seconds") if r.updated_at else None,
+            completed_at=r.completed_at.isoformat(timespec="seconds") if r.completed_at else None,
+        )
+        for r in rows
+    ])
 
 
 @app.get("/api/decisions/{thread_id}", response_model=DecisionStatus, tags=["decisions"])
@@ -182,6 +237,11 @@ def get_decision(thread_id: str, request: Request):
         progress=runner.progress(thread_id),
         error=error,
         has_report=bool(values.get("final_report")),
+        current_node=values.get("current_node"),
+        next_nodes=list(snapshot.next or ()),
+        started_at=values.get("started_at"),
+        active_seconds=float(values.get("active_seconds", 0.0) or 0.0),
+        counters=_counters(values),
     )
 
 
@@ -241,3 +301,66 @@ def get_evidence(thread_id: str, request: Request):
     evidence = (_snapshot(request, thread_id).values or {}).get("evidence", [])
     counts = Counter(e.get("verification_status", "pending") for e in evidence)
     return EvidenceResponse(thread_id=thread_id, count=len(evidence), verification_counts=dict(counts), evidence=evidence)
+
+
+@app.get("/api/decisions/{thread_id}/live", response_model=LiveSnapshot, tags=["decisions"])
+def get_live(thread_id: str, request: Request):
+    """Everything the agents produced so far (case facts, evidence counts, plans, criticisms, scores, verdicts).
+    Readable at any time; the frontend fetches it whenever a node finishes, so the user can watch the work appear."""
+    snapshot = _snapshot(request, thread_id)
+    values = snapshot.values or {}
+    evidence = values.get("evidence", [])
+    by_perspective = Counter(e.get("perspective", "?") for e in evidence)
+    return LiveSnapshot(
+        thread_id=thread_id,
+        run_state=_run_state(request.app.state.runner, thread_id, snapshot),
+        workflow_status=values.get("status"),
+        current_node=values.get("current_node"),
+        case=CaseView(
+            condition_name=values.get("condition_name"),
+            condition_category=values.get("condition_category"),
+            case_summary=values.get("case_summary"),
+            user_context=values.get("user_context") or "",
+            health_profile=values.get("health_profile", {}),
+            symptoms=values.get("symptoms", {}),
+            constraints=values.get("constraints", {}),
+            missing_information=values.get("missing_information", []),
+            assumptions=values.get("assumptions", []),
+            clarification_answers=values.get("clarification_answers", {}),
+            red_flags=values.get("red_flags", []),
+            withdrawn_red_flags=values.get("withdrawn_red_flags", []),
+            red_flag_action=values.get("red_flag_action"),
+        ),
+        research=ResearchView(
+            passes=_counters(values).research_passes,
+            queries=values.get("research_queries", []),
+            evidence_by_perspective=dict(by_perspective),
+            evidence_gaps=values.get("evidence_gaps", []),
+            conflicting_claims=values.get("conflicting_claims", []),
+            rejected_count=len(values.get("rejected_sources", [])),
+            perspective_summaries=values.get("perspective_summaries", {}),
+            research_focus=values.get("research_focus", []),
+        ),
+        debate=DebateView(
+            round=values.get("debate_round", 0),
+            care_plans=values.get("care_plans", []),
+            criticisms=values.get("criticisms", []),
+            scores=values.get("scores", []),
+            verdict=values.get("verdict") or None,
+            lane_status=values.get("proposer_lane_status", {}),
+            proposer_notes=values.get("proposer_notes", {}),
+        ),
+        verification=VerificationView(
+            results=values.get("verification_results", []),
+            verdict=values.get("checker_verdict") or None,
+            unresolved_questions=values.get("unresolved_questions", []),
+        ),
+        review=ReviewView(
+            rounds=values.get("human_review_round_count", 0),
+            action=values.get("human_action"),
+            feedback=values.get("user_feedback") or "",
+            selected_plan_id=values.get("human_selected_plan_id"),
+        ),
+        errors=values.get("error_history", []),
+        metrics=values.get("metrics") or None,
+    )

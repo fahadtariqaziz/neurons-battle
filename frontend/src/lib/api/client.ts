@@ -8,8 +8,10 @@ import type {
   CreateDecisionRequest,
   DecisionStatus,
   EvidenceResponse,
+  LiveSnapshot,
   ReportResponse,
   ResumeRequest,
+  SessionList,
 } from "./types";
 
 // NEXT_PUBLIC_ variables are copied into the browser bundle: only put public values here, never API keys.
@@ -74,4 +76,14 @@ export function getReport(threadId: string): Promise<ReportResponse> {
 /** Evidence kept so far, with verification status. */
 export function getEvidence(threadId: string): Promise<EvidenceResponse> {
   return request(`/${encodeURIComponent(threadId)}/evidence`);
+}
+
+/** Everything the agents produced so far: case facts, evidence counts, plans, criticisms, scores, verdicts. */
+export function getLive(threadId: string): Promise<LiveSnapshot> {
+  return request(`/${encodeURIComponent(threadId)}/live`);
+}
+
+/** Recent sessions, newest first (503 if the database cannot be read). */
+export function listDecisions(limit = 20): Promise<SessionList> {
+  return request(`?limit=${limit}`);
 }
