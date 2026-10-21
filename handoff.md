@@ -128,10 +128,11 @@ The Judge's `verdict.winning_plan_ids` holds one winner per lane; the report sho
 - [x] 8.2 [YOU] Tested via `/docs` Swagger UI 2026-10-22 (full session, report 200).
 
 ### Phase 9 — Next.js frontend
-- [ ] 9.1 [CLAUDE] Scaffold Next.js + Tailwind, API client.
-- [ ] 9.2 [CLAUDE] Condition input + clarification screens.
-- [ ] 9.3 [CLAUDE] Agent activity, evidence panel (per perspective), plan comparison view.
-- [ ] 9.4 [CLAUDE] Human review, final report (3 perspectives side by side), feedback.
+- [x] 9.1 [CLAUDE] `frontend/` (Next.js 16.4, React 19, Tailwind 4, App Router, cacheComponents on): `lib/api/types.ts` + `lib/api/client.ts`, `hooks/useDecision.ts` (2 s polling), `/` form → `/decisions/[threadId]` bare status + live progress + Continue for interrupted runs. Built 2026-10-22.
+- [ ] 9.1b [YOU] Test in the browser, screenshot.
+- [ ] 9.2 [CLAUDE] Clarification + red-flag pause screens.
+- [ ] 9.3 [CLAUDE] Backend: endpoint for plans / criticisms / scores / counters while running; then agent activity, evidence panel (per perspective), plan comparison view.
+- [ ] 9.4 [CLAUDE] Human review, final report (3 perspectives side by side). (Feedback screen dropped: user doesn't want ratings.)
 
 ### Phase 10 — Quality
 - [ ] 10.1 [YOU] Manual test pass using the scenario checklist in `docs/requirements.md` §12 (adapted to health cases).
@@ -248,7 +249,9 @@ The Judge's `verdict.winning_plan_ids` holds one winner per lane; the report sho
 
 - 2026-10-22: **8.1 verified by user in Swagger** (thread a774b4a3…, "I have type 2 diabetes"): POST 202 → GET paused with 6 questions → resume (exact question keys) 202 → progress lines visible while running → evidence checker found a gap → automatic 2nd research + debate round (429 s total) → human_review pause (research_a 7.75, doctor_c 7.80, patient_a 7.65) → approve → `completed`, GET /report 200 (2 research passes, 51 sources, 30 claims checked, plans used the user's answers: rice/bread, walking, metformin 500 mg, HbA1c 7.8%). Note for Phase 9: Swagger's example body for `answers` shows `additionalProp1…`; the frontend must send the exact question texts as keys. **Phase 8 done.**
 
-## ▶ Next step
-**[YOU]** Commit: `Phase 8.1: FastAPI backend with background runs, polling and resume`
+- 2026-10-22: 8.1 committed + pushed. **9.1 built.** `create-next-app` (TS, Tailwind, ESLint, App Router, src/, Turbopack) → Next 16.4.2 with `cacheComponents: true` by default: the dynamic session page is a Server Component wrapping the `"use client"` `DecisionView` (reads `useParams`) in `<Suspense>`, as the bundled docs require (`node_modules/next/dist/docs/`; `frontend/AGENTS.md` says to read them — APIs differ from older Next). `LayoutProps`/`PageProps` are generated types (exist after `next dev`/`build`). API client: one function per endpoint, `ApiError(status, code, message)` from our error shape, status 0 = backend unreachable, `cache: "no-store"`; `NEXT_PUBLIC_API_URL` (public, no secrets) in `.env.local` / `.env.example` (gitignore exception added). `useDecision`: polls while `running`, stops on paused/finished, retries every 5 s when unreachable / 5xx, stops on 404; `refresh()` after a resume. Backend CORS now also allows `http://127.0.0.1:3000`. Checks: lint, `tsc`, `next build` OK; pages 200; CORS preflight OK for both origins.
 
-Then **[CLAUDE] 9.1 — Next.js scaffold + Tailwind + API client** (explain plan first, wait for go).
+## ▶ Next step
+**[YOU] 9.1b** Restart the backend (CORS change), start the frontend, try a session in the browser; screenshot. Then commit: `Phase 9.1: Next.js scaffold, API client and live session page`.
+
+Then **[CLAUDE] 9.2 — clarification + red-flag screens** (explain first).

@@ -82,7 +82,7 @@ app = FastAPI(
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 # The Next.js dev server (Phase 9) runs on another port, so the browser needs CORS permission.
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"], allow_methods=["*"], allow_headers=["*"])
 
 
 # --- errors: always {"error": {"code", "message"}} ---------------------------------------------
