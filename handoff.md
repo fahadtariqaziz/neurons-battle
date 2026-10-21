@@ -124,8 +124,8 @@ The Judge's `verdict.winning_plan_ids` holds one winner per lane; the report sho
 - [x] 7.4 [YOU] Verified 2026-10-21 (run_report → select patient_a → "saved session, 25 evidence and the report"; 2 sessions / 49 evidence rows in psql).
 
 ### Phase 8 — FastAPI backend
-- [ ] 8.1 [CLAUDE] Endpoints: create / status / resume / report / evidence / feedback, background execution + polling.
-- [ ] 8.2 [YOU] Test via `/docs` Swagger UI, screenshot.
+- [x] 8.1 [CLAUDE] `api/` package (`main.py`, `schemas.py`, `runner.py`): create / status / resume / report / evidence (feedback dropped: no ratings), background threads + polling, connection pool, `{"error": {code, message}}`. Built 2026-10-21; `scripts/api_flow.py` drives a full session.
+- [x] 8.2 [YOU] Tested via `/docs` Swagger UI 2026-10-22 (full session, report 200).
 
 ### Phase 9 — Next.js frontend
 - [ ] 9.1 [CLAUDE] Scaffold Next.js + Tailwind, API client.
@@ -244,7 +244,11 @@ The Judge's `verdict.winning_plan_ids` holds one winner per lane; the report sho
 
 - 2026-10-21: **7.3 verified by user.** `run_report.py` → select_plan patient_a → completion printed "saved session, 25 evidence and the report to the database" → `completed_with_uncertainty`. psql: 2 sessions (4abb8eae… completed, 24627c46… completed_with_uncertainty) with completed_at; evidence_records 49 rows (24 + 25) by perspective / verification status. **Phase 7 done.**
 
-## ▶ Next step
-**[YOU]** Commit: `Phase 7.3: SQLAlchemy models, Alembic migration, completion saves session/evidence/report`
+- 2026-10-21: 7.3 committed (f07e4ad). **8.1 built.** `uv add fastapi uvicorn[standard] psycopg-pool`. `api/main.py`: lifespan opens a `psycopg_pool.ConnectionPool` (autocommit, prepare_threshold 0, dict_row) → `PostgresSaver(pool)` + `setup()` + graph once; CORS for localhost:3000; error handlers (ours, FastAPI 422, unknown routes) all return `{"error": {code, message}}`. `api/runner.py`: `GraphRunner.start()` claims the session under a lock (one run per session → 409 `already_running`), streams `custom` + `updates` into in-memory progress lines, daemon threads (server stop doesn't wait), crash message kept, session row updated at pauses. `db/repository.save_session_status()` (no metrics/completed_at; completion owns those); create writes the row with status `intake`. `run_state` (running / paused / interrupted / finished) derived from the runner + `get_state()` (interrupts → paused, `next` without a run → interrupted). Resume body = discriminated union on `type` (clarification / red_flag / human_review / continue); 409 `nothing_pending` / `wrong_pause_type` / `not_interrupted`; 422 for unknown questions and select_plan ids outside `selectable_plan_ids`. Verified live: `api_flow.py --auto` (type 2 diabetes) → clarification → 205 s to review → approve → `completed`, report 200, evidence 200 (25). Error cases all returned the expected codes; killed the server during research → after restart GET showed `interrupted` (progress lines gone, as designed) → `continue` resumed from the research step. decision_sessions shows `awaiting_clarification` for a paused session.
 
-Then **[CLAUDE] 8.1 — FastAPI backend** (plan explained to the user, waiting for go).
+- 2026-10-22: **8.1 verified by user in Swagger** (thread a774b4a3…, "I have type 2 diabetes"): POST 202 → GET paused with 6 questions → resume (exact question keys) 202 → progress lines visible while running → evidence checker found a gap → automatic 2nd research + debate round (429 s total) → human_review pause (research_a 7.75, doctor_c 7.80, patient_a 7.65) → approve → `completed`, GET /report 200 (2 research passes, 51 sources, 30 claims checked, plans used the user's answers: rice/bread, walking, metformin 500 mg, HbA1c 7.8%). Note for Phase 9: Swagger's example body for `answers` shows `additionalProp1…`; the frontend must send the exact question texts as keys. **Phase 8 done.**
+
+## ▶ Next step
+**[YOU]** Commit: `Phase 8.1: FastAPI backend with background runs, polling and resume`
+
+Then **[CLAUDE] 9.1 — Next.js scaffold + Tailwind + API client** (explain plan first, wait for go).

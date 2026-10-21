@@ -32,6 +32,25 @@ def _upsert_session(db, thread_id: str, state: dict, status: str, metrics: dict 
     return db.execute(stmt).scalar_one()
 
 
+def save_session_status(thread_id: str, state: dict, status: str) -> None:
+    """The API (Phase 8) calls this when a session starts and at every pause, so decision_sessions shows
+    live statuses, not only finished sessions. Leaves metrics / completed_at alone: completion owns those."""
+    values = {
+        "thread_id": thread_id,
+        "question": state.get("question", ""),
+        "condition_name": state.get("condition_name"),
+        "condition_category": state.get("condition_category"),
+        "status": status,
+        "red_flags": state.get("red_flags", []),
+    }
+    with session_factory().begin() as db:
+        stmt = insert(DecisionSession).values(**values)
+        db.execute(stmt.on_conflict_do_update(
+            index_elements=["thread_id"],
+            set_={k: stmt.excluded[k] for k in values if k != "thread_id"} | {"updated_at": datetime.now(timezone.utc)},
+        ))
+
+
 def save_completion(thread_id: str, state: dict, status: str, metrics: dict) -> None:
     """Session + evidence + report in ONE transaction: all saved, or nothing (rollback on any error)."""
     with session_factory().begin() as db:
