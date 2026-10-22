@@ -660,9 +660,15 @@ class OnboardingSummary(BaseModel):
 
     opening: str = Field(description="One warm sentence in the second person saying you now understand their health "
                                      "situation; name the condition and one personal detail they shared.")
-    doctors_say: str = Field(description="2-3 short sentences: what doctors / clinical guidance say for someone like them.")
-    patients_say: str = Field(description="2-3 short sentences: what other people living with this condition report.")
-    research_says: str = Field(description="2-3 short sentences: what studies have found.")
+    doctors_say: str = Field(description="Markdown bullet list, 3-7 bullets plus sub-bullets for examples: the concrete "
+                                         "advice a doctor would give this patient (what, how much, how often, what to "
+                                         "track). Empty string if there is no doctor plan.")
+    patients_say: str = Field(description="Markdown bullet list, 3-7 bullets plus sub-bullets for examples: the concrete "
+                                          "things other people with this condition do (specific foods, times, amounts, "
+                                          "habits). Empty string if there is no patient plan.")
+    research_says: str = Field(description="Markdown bullet list, 3-7 bullets plus sub-bullets for examples: specific "
+                                           "findings of studies (what was tried, how much, what changed), in plain "
+                                           "words. Empty string if there is no research plan.")
     invitation: str = Field(description="One sentence inviting them to talk about diet, daily routine, how they feel, "
                                         "medicines or doctor visits.")
 

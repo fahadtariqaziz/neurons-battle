@@ -62,7 +62,7 @@ export function SummaryMessage({ summary }: { summary: OnboardingSummary }) {
               <Icon className="size-4 text-teal-300" aria-hidden />
               {label}
             </p>
-            <p className="text-neutral-200">{summary[key]}</p>
+            <Markdown dark className="text-neutral-200 [&_p]:leading-7">{summary[key]}</Markdown>
           </div>
         ) : null,
       )}

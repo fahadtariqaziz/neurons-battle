@@ -5,7 +5,7 @@
 
 import { Activity, Brain, HeartPulse, Moon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 
 import { ApiError, createDecision } from "@/lib/api/client";
 
@@ -24,6 +24,15 @@ export function NewChat() {
   const { refresh } = useChatList();
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Next keeps this page alive (hidden) after we navigate to the new chat. Reset when it's hidden, so
+  // "New chat" shows a usable screen instead of the disabled "sending" state.
+  useLayoutEffect(() => {
+    return () => {
+      setSending(false);
+      setError(null);
+    };
+  }, []);
 
   async function start(text: string) {
     if (sending) return;
