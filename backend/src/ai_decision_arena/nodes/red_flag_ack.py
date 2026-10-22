@@ -26,8 +26,10 @@ from ai_decision_arena.state import ArenaState
 def pending_red_flags(state: ArenaState) -> list[str]:
     """Red flags that still need a human decision: all of them until the user has decided once.
     Withdrawn flags count too (marked as such): once something looked like an emergency, a human decides,
-    even if a later answer contradicted it. Withdrawing a flag never skips the pause."""
-    if state.get("red_flag_action") == "continue":
+    even if a later answer contradicted it. Withdrawing a flag never skips the pause.
+    Patient chat (quick mode) never pauses here (user decision 2026-10-22): the flags are still recorded in
+    the state and the report, and the chat agent is told to bring up urgent care calmly when it matters."""
+    if state.get("red_flag_action") == "continue" or state.get("mode") == "quick":
         return []
     withdrawn = [f"{w['flag']}  [withdrawn after your answers: {w['reason']}]" for w in state.get("withdrawn_red_flags", [])]
     return list(state.get("red_flags", [])) + withdrawn

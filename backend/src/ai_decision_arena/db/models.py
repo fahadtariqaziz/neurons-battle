@@ -1,7 +1,8 @@
 """The app's own tables (docs/requirements.md §9, adapted to health).
 
 LangGraph's checkpoint tables hold the graph's working state; these tables hold what we want to
-QUERY: sessions and their status, kept evidence, final reports, and (Phase 8) user feedback.
+QUERY: sessions and their status, kept evidence, final reports, (Phase 8) user feedback, and the patient
+chat's messages (chat_messages, written by api/chat.py).
 We don't copy every state field: the full state stays in the checkpoint, keyed by thread_id.
 
 Schema changes go through Alembic migrations (backend/migrations), never by hand.
@@ -27,6 +28,7 @@ class DecisionSession(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     thread_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)   # links to the checkpoints
     question: Mapped[str] = mapped_column(Text)
+    mode: Mapped[str] = mapped_column(String(10), server_default="full", index=True)   # full (admin) / quick (patient chat)
     condition_name: Mapped[str | None] = mapped_column(String(200))
     condition_category: Mapped[str | None] = mapped_column(String(50))
     status: Mapped[str] = mapped_column(String(40), index=True)                   # a WorkflowStatus value
@@ -95,3 +97,18 @@ class UserFeedback(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     session: Mapped[DecisionSession] = relationship(back_populates="feedback")
+
+
+class ChatMessage(Base):
+    """One message of the patient chat that follows onboarding (quick sessions). The onboarding itself
+    (first message, questions and answers, summary) lives in the checkpoint; only the free chat is here.
+    Linked by thread_id (not a foreign key): the chat works even when PERSIST_RESULTS=false skips the session row."""
+
+    __tablename__ = "chat_messages"
+    __table_args__ = (CheckConstraint("role IN ('user', 'assistant')", name="ck_chat_messages_role"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    thread_id: Mapped[str] = mapped_column(String(64), index=True)
+    role: Mapped[str] = mapped_column(String(20))
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -17,6 +17,8 @@ from ai_decision_arena.schemas import HumanAction, WorkflowStatus
 class ArenaState(TypedDict, total=False):
     # --- session ---------------------------------------------------- (API / intake)
     thread_id: str
+    mode: str                            # "full" (admin view: every pause) | "quick" (patient chat: fast settings,
+                                         # no red-flag / human-review pause, ends with onboarding_summary). Set by the API.
     status: WorkflowStatus               # editor warns on typos like "complete"
     current_node: str                    # last node that ran, for the frontend
     started_at: str                      # ISO time, set by intake
@@ -83,6 +85,7 @@ class ArenaState(TypedDict, total=False):
 
     # --- output ------------------------------------------- (final_report/completion)
     final_report: dict                   # FinalReport
+    onboarding_summary: dict             # OnboardingSummary, quick mode only: the chat's first answer (final_report)
     unresolved_questions: list[str]      # appended by evidence_checker, finalized by final_report
     completed_at: str
     metrics: dict                        # durations, rounds, counts (completion)

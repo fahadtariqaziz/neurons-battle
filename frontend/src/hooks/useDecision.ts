@@ -12,7 +12,7 @@ import type { DecisionStatus } from "@/lib/api/types";
 const POLL_MS = 2000;
 const RETRY_MS = 5000; // backend unreachable: keep trying, a bit slower
 
-export function useDecision(threadId: string) {
+export function useDecision(threadId: string, pollMs = POLL_MS) {
   const [status, setStatus] = useState<DecisionStatus | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [refreshCount, setRefreshCount] = useState(0); // changing it re-runs the effect below
@@ -32,7 +32,7 @@ export function useDecision(threadId: string) {
         setStatus(next);
         setError(null);
         setLastUpdate(Date.now());
-        if (next.run_state === "running") timer = setTimeout(load, POLL_MS);
+        if (next.run_state === "running") timer = setTimeout(load, pollMs);
       } catch (e) {
         if (cancelled) return;
         const err = e instanceof ApiError ? e : new ApiError(0, "unknown", String(e));
@@ -46,7 +46,7 @@ export function useDecision(threadId: string) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [threadId, refreshCount]);
+  }, [threadId, refreshCount, pollMs]);
 
   const refresh = useCallback(() => setRefreshCount((n) => n + 1), []);
 

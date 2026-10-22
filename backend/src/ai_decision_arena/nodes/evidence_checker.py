@@ -151,7 +151,9 @@ def evidence_checker_node(state: ArenaState) -> dict:
                   "continuing with them listed as unresolved.")
         unresolved = list(state.get("unresolved_questions", []))
         unresolved += [f"Unverified: {g}" for g in gaps if f"Unverified: {g}" not in unresolved]
-        update |= {"unresolved_questions": unresolved, "status": "awaiting_human_review"}
+        # Patient chat (quick mode) has no review pause: the graph goes straight to the report.
+        update |= {"unresolved_questions": unresolved,
+                   "status": "reporting" if state.get("mode") == "quick" else "awaiting_human_review"}
 
     update["checker_verdict"] = {
         "decision": decision, "reason": reason, "gaps_by_lane": gaps_by_lane, "summaries": summaries,

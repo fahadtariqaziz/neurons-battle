@@ -4,6 +4,8 @@ Three LLM calls run in parallel (one per lane). Each lane only sees its own evid
 "doctor" plans really come from clinical sources and the "patient" plans from patient reports.
 Python assigns plan ids (research_a, doctor_b, ...) and checks that cited evidence ids exist.
 
+Quick (patient chat) sessions ask for ONE plan per lane (QUICK_RULE), the main lever for a ~30 s onboarding.
+
 Writes (owner): care_plans, proposer_notes, proposer_lane_status, debate_round, status, current_node.
 Also clears criticisms/scores (a new round invalidates the old ones).
 """
@@ -12,6 +14,7 @@ import json
 
 from langsmith.utils import ContextThreadPoolExecutor
 
+from ai_decision_arena.config import get_settings
 from ai_decision_arena.llm import call_structured
 from ai_decision_arena.progress import report
 from ai_decision_arena.prompting import SAFETY_RULES, criticisms_block, evidence_block, perspective_label, user_case_block
@@ -56,6 +59,14 @@ Rules:
 """ + SAFETY_RULES
 
 
+QUICK_RULE = """QUICK SESSION: this overrides every plan count below and in the output schema. Return exactly ONE
+plan (plans list of length 1): the approach from this lens that fits this user best. Set why_fewer_than_two to
+"quick session" and evidence_too_thin to false, unless the evidence is too thin for any plan (then an empty
+list and evidence_too_thin true).
+
+"""
+
+
 def _propose_lane(state: ArenaState, perspective: str, round_number: int) -> tuple[list[dict], str, str]:
     """One Proposer call for one lane. Returns (CarePlan dicts, note, lane_status) where lane_status is
     ok | thin (evidence insufficient, research may help) | declined (deliberately no plan) | no_evidence."""
@@ -71,9 +82,14 @@ def _propose_lane(state: ArenaState, perspective: str, round_number: int) -> tup
 <human_feedback action="{state.get("human_action", "")}">{state.get("user_feedback", "") or "(none)"}</human_feedback>
 <debate_round>{round_number}</debate_round>"""
 
+    system_prompt = SYSTEM_PROMPT.replace("{perspective_label}", perspective_label(perspective))
+    quick = get_settings().session_mode == "quick"
+    if quick:
+        system_prompt = QUICK_RULE + system_prompt
+        user_content += "\n<plans_wanted>exactly 1 (quick session)</plans_wanted>"
     out = call_structured(
         ProposerOutput,
-        SYSTEM_PROMPT.replace("{perspective_label}", perspective_label(perspective)),
+        system_prompt,
         user_content,
         max_tokens=7000,
         run_name=f"proposer_{perspective}_llm",
@@ -81,7 +97,7 @@ def _propose_lane(state: ArenaState, perspective: str, round_number: int) -> tup
 
     known = {e["evidence_id"] for e in evidence}
     plans: list[dict] = []
-    for i, p in enumerate(out.plans[:MAX_PLANS_PER_PERSPECTIVE]):
+    for i, p in enumerate(out.plans[:1 if quick else MAX_PLANS_PER_PERSPECTIVE]):
         # Trust boundary: only ids from THIS lane's evidence survive. Dropped ones become a visible gap.
         cited = [eid for eid in p.supporting_evidence_ids if eid in known]
         unknown = [eid for eid in p.supporting_evidence_ids if eid not in known]
@@ -96,7 +112,7 @@ def _propose_lane(state: ArenaState, perspective: str, round_number: int) -> tup
         )
         plans.append(plan.model_dump(mode="json"))
 
-    note = out.why_fewer_than_two.strip() if len(plans) < 2 else ""
+    note = out.why_fewer_than_two.strip() if len(plans) < 2 and not quick else ""
     report("proposer", f"{perspective} lane: {len(plans)} plan(s)" + (f" — {note[:80]}" if note else ""))
     if len(plans) >= 2:
         lane_status = "ok"

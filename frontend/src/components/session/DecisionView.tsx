@@ -70,7 +70,7 @@ export function DecisionView() {
           <Callout tone="danger" title="Session not found">
             <p>{error.message}</p>
           </Callout>
-          <Link href="/" className="text-sm font-medium text-brand hover:underline">
+          <Link href="/admin" className="text-sm font-medium text-brand hover:underline">
             Start a new session
           </Link>
         </div>
@@ -125,7 +125,7 @@ export function DecisionView() {
       <Callout tone="info" title="You stopped this session at the safety check">
         <p>Nothing was researched. If you were in an emergency, we hope you got care. You can start a new session any time.</p>
         <div className="pt-2">
-          <Link href="/">
+          <Link href="/admin">
             <Button variant="secondary" size="sm">Start a new session</Button>
           </Link>
         </div>
@@ -145,7 +145,7 @@ export function DecisionView() {
           </ul>
         )}
         <div className="pt-2">
-          <Link href="/">
+          <Link href="/admin">
             <Button variant="secondary" size="sm">Start a new session</Button>
           </Link>
         </div>

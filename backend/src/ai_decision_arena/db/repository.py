@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from ai_decision_arena.db.engine import session_factory
-from ai_decision_arena.db.models import DecisionReport, DecisionSession, EvidenceRecord
+from ai_decision_arena.db.models import ChatMessage, DecisionReport, DecisionSession, EvidenceRecord
 
 EVIDENCE_COLUMNS = {"evidence_id", "perspective", "source_url", "source_title", "source_type",
                     "relevant_excerpt", "verification_status", "retrieved_at"}
@@ -18,6 +18,7 @@ def _upsert_session(db, thread_id: str, state: dict, status: str, metrics: dict 
     values = {
         "thread_id": thread_id,
         "question": state.get("question", ""),
+        "mode": state.get("mode") or "full",
         "condition_name": state.get("condition_name"),
         "condition_category": state.get("condition_category"),
         "status": status,
@@ -39,6 +40,7 @@ def save_session_status(thread_id: str, state: dict, status: str) -> None:
     values = {
         "thread_id": thread_id,
         "question": state.get("question", ""),
+        "mode": state.get("mode") or "full",
         "condition_name": state.get("condition_name"),
         "condition_category": state.get("condition_category"),
         "status": status,
@@ -90,8 +92,22 @@ def save_completion(thread_id: str, state: dict, status: str, metrics: dict) -> 
             ))
 
 
-def list_sessions(limit: int = 20) -> list[DecisionSession]:
-    """Newest sessions first, for the frontend's "recent sessions" list (Phase 9)."""
+def list_sessions(limit: int = 20, mode: str | None = None) -> list[DecisionSession]:
+    """Newest sessions first, for the frontend's "recent sessions" lists. mode: only "full" or "quick" ones."""
+    query = select(DecisionSession).order_by(DecisionSession.created_at.desc()).limit(limit)
+    if mode:
+        query = query.where(DecisionSession.mode == mode)
     with session_factory()() as db:
-        rows = db.execute(select(DecisionSession).order_by(DecisionSession.created_at.desc()).limit(limit)).scalars()
-        return list(rows)
+        return list(db.execute(query).scalars())
+
+
+def add_chat_message(thread_id: str, role: str, content: str) -> None:
+    with session_factory().begin() as db:
+        db.add(ChatMessage(thread_id=thread_id, role=role, content=content))
+
+
+def list_chat_messages(thread_id: str, limit: int = 200) -> list[ChatMessage]:
+    """Oldest first (the order of the conversation)."""
+    query = select(ChatMessage).where(ChatMessage.thread_id == thread_id).order_by(ChatMessage.id).limit(limit)
+    with session_factory()() as db:
+        return list(db.execute(query).scalars())

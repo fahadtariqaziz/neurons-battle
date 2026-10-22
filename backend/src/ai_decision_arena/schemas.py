@@ -655,6 +655,18 @@ class ReportNarrative(BaseModel):
     next_steps: list[str] = Field(description="Questions to bring to a doctor and things to monitor, at most 6. Never prescribe.")
 
 
+class OnboardingSummary(BaseModel):
+    """LLM output, patient chat only: the short message that ends onboarding and opens the chat."""
+
+    opening: str = Field(description="One warm sentence in the second person saying you now understand their health "
+                                     "situation; name the condition and one personal detail they shared.")
+    doctors_say: str = Field(description="2-3 short sentences: what doctors / clinical guidance say for someone like them.")
+    patients_say: str = Field(description="2-3 short sentences: what other people living with this condition report.")
+    research_says: str = Field(description="2-3 short sentences: what studies have found.")
+    invitation: str = Field(description="One sentence inviting them to talk about diet, daily routine, how they feel, "
+                                        "medicines or doctor visits.")
+
+
 class FinalReport(BaseModel):
     generated_at: datetime = Field(default_factory=utc_now)
     original_question: str

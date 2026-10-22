@@ -231,9 +231,13 @@ export interface LiveSnapshot {
 
 // --- session list (GET /api/decisions) ---------------------------------------------------------
 
+/** "full" = admin view (every pause), "quick" = patient chat (fast, no pauses after the questions). */
+export type SessionMode = "full" | "quick";
+
 export interface SessionSummary {
   thread_id: string;
   question: string;
+  mode: SessionMode;
   condition_name: string | null;
   status: string;
   red_flag_count: number;
@@ -257,6 +261,7 @@ export interface Accepted {
 export interface CreateDecisionRequest {
   question: string;
   context?: string;
+  mode?: SessionMode; // default "full"
 }
 
 /** Body of POST /resume. `type` must match pending.type (or "continue" for an interrupted run). */
@@ -388,4 +393,33 @@ export interface ReportResponse {
   thread_id: string;
   workflow_status: string;
   report: FinalReport;
+}
+
+// --- patient chat (backend api/chat.py) ------------------------------------------------------------
+
+/** The short message that ends onboarding (backend schemas.OnboardingSummary). */
+export interface OnboardingSummary {
+  opening: string;
+  doctors_say: string;
+  patients_say: string;
+  research_says: string;
+  invitation: string;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+}
+
+/** GET /api/chats/{thread_id}: the onboarding so far and the chat messages after it. */
+export interface ChatTranscript {
+  thread_id: string;
+  mode: SessionMode;
+  question: string | null;
+  condition_name: string | null;
+  clarifications: { question: string; answer: string }[]; // answered onboarding questions, in order
+  onboarding_summary: OnboardingSummary | null;
+  ready: boolean; // the report exists: the patient can chat
+  messages: ChatMessage[];
 }

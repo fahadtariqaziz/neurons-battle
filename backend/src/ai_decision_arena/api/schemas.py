@@ -40,6 +40,8 @@ class CreateDecisionRequest(BaseModel):
     question: str = Field(min_length=MIN_QUESTION_CHARS, max_length=MAX_QUESTION_CHARS,
                           examples=["I have type 2 diabetes"])
     context: str = Field(default="", max_length=MAX_CONTEXT_CHARS, description="Optional extra context.")
+    mode: Literal["full", "quick"] = Field(default="full", description='"full": every pause (admin view). "quick": the '
+                                           "patient chat: faster, no red-flag / review pause, ends with a short summary.")
 
 
 class ClarificationResume(BaseModel):
@@ -224,6 +226,7 @@ class LiveSnapshot(BaseModel):
 class SessionSummary(BaseModel):
     thread_id: str
     question: str
+    mode: str = "full"
     condition_name: str | None = None
     status: str
     red_flag_count: int = 0
@@ -234,3 +237,36 @@ class SessionSummary(BaseModel):
 
 class SessionList(BaseModel):
     sessions: list[SessionSummary]
+
+
+# --- patient chat (api/chat.py) -------------------------------------------------------------------
+
+class ChatMessageView(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+    created_at: str
+
+
+class ClarificationTurn(BaseModel):
+    question: str
+    answer: str
+
+
+class ChatTranscript(BaseModel):
+    """Everything the chat page shows besides the live status: the onboarding (first message, the questions
+    already answered, the summary) and the chat messages that followed."""
+
+    thread_id: str
+    mode: str
+    question: str | None = None
+    condition_name: str | None = None
+    clarifications: list[ClarificationTurn] = Field(default_factory=list, description="Answered onboarding questions, in order.")
+    onboarding_summary: dict[str, str] | None = Field(default=None, description="OnboardingSummary once onboarding finished.")
+    ready: bool = Field(description="True once the report exists: the patient can chat.")
+    messages: list[ChatMessageView] = Field(default_factory=list)
+
+
+class ChatMessageRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    content: str = Field(min_length=1, max_length=4000)

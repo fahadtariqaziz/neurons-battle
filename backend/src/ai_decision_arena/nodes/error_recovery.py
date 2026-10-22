@@ -7,6 +7,8 @@ How it works:
 - Every outgoing edge in graph.py is "guarded": if `error` is set, the graph goes to error_recovery.
 - error_recovery decides: retry the failed node after a backoff (recoverable error, retries left,
   time budget left) or give up (status "failed" → completion). Explicit edges, no catch-all loop.
+- The wrapper also runs the node inside `session_mode(state["mode"])`, so a quick (patient chat) session
+  gets the quick settings everywhere (config.py).
 - The wrapper also accumulates `active_seconds` (time inside nodes, human pauses excluded), which the
   session time budget uses.
 
@@ -20,7 +22,7 @@ import time
 import anthropic
 from langgraph.errors import GraphBubbleUp
 
-from ai_decision_arena.config import get_settings
+from ai_decision_arena.config import get_settings, session_mode
 from ai_decision_arena.limits import time_budget_left
 from ai_decision_arena.llm import LLMOutputError
 from ai_decision_arena.nodes.intake import InvalidInputError
@@ -51,7 +53,8 @@ def recoverable(name: str):
         def wrapped(state: ArenaState) -> dict:
             started = time.time()
             try:
-                update = dict(fn(state) or {})
+                with session_mode(state.get("mode")):
+                    update = dict(fn(state) or {})
             except GraphBubbleUp:                    # interrupt(): control flow, must bubble up
                 raise
             except Exception as exc:                 # noqa: BLE001 - this is the recovery boundary
@@ -80,7 +83,9 @@ def recoverable(name: str):
 
 
 def error_recovery_node(state: ArenaState) -> dict:
-    settings = get_settings()
+    with session_mode(state.get("mode")):
+        settings = get_settings()
+        can_continue = time_budget_left(state)
     error = dict(state.get("error") or {})
     node = state.get("failed_node", "")
     counts = dict(state.get("error_retry_counts", {}))
@@ -92,7 +97,7 @@ def error_recovery_node(state: ArenaState) -> dict:
         blocked.append(f"{error.get('category', 'unknown')} errors are not retried")
     if attempts >= settings.max_node_retries:
         blocked.append(f"retry limit ({settings.max_node_retries}) reached")
-    if not time_budget_left(state):
+    if not can_continue:
         blocked.append("session time budget spent")
 
     if not blocked:

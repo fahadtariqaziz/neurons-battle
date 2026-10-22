@@ -11,7 +11,9 @@ Flow:
     GET  /api/decisions/{id}/report       → the final report, once finished
     GET  /api/decisions/{id}/evidence     → kept evidence with verification status
     GET  /api/decisions/{id}/live         → everything produced so far (case, evidence counts, plans, scores, verdicts)
-    GET  /api/decisions                   → recent sessions (from the app tables)
+    GET  /api/decisions                   → recent sessions (from the app tables); ?mode=quick for the chat list
+    GET  /api/chats/{id}                  → patient chat transcript (api/chat.py)
+    POST /api/chats/{id}/messages         → send a chat message; the reply streams back as text (api/chat.py)
 
 Status and pending pause are read from the checkpoint (graph.get_state), so they survive a restart.
 """
@@ -20,6 +22,7 @@ import logging
 import uuid
 from contextlib import asynccontextmanager
 from collections import Counter
+from typing import Literal
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -31,7 +34,9 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from ai_decision_arena.api.chat import router as chat_router
 from ai_decision_arena.api.runner import GraphRunner, graph_config
+from ai_decision_arena.api.errors import ApiError
 from ai_decision_arena.api.schemas import (
     Accepted,
     CaseView,
@@ -103,12 +108,10 @@ app.add_middleware(
 )
 
 
+app.include_router(chat_router)
+
+
 # --- errors: always {"error": {"code", "message"}} ---------------------------------------------
-
-class ApiError(Exception):
-    def __init__(self, status_code: int, code: str, message: str):
-        self.status_code, self.code, self.message = status_code, code, message
-
 
 def _error(status_code: int, code: str, message: str) -> JSONResponse:
     return JSONResponse(status_code=status_code, content={"error": {"code": code, "message": message}})
@@ -178,16 +181,17 @@ def create_decision(body: CreateDecisionRequest, request: Request):
     """Create a session and start the graph in the background. Returns at once with the thread_id."""
     thread_id = str(uuid.uuid4())
     if get_settings().persist_results:
-        save_session_status(thread_id, {"question": body.question}, "intake")
-    _start(request.app.state.runner, thread_id, {"question": body.question, "user_context": body.context})
+        save_session_status(thread_id, {"question": body.question, "mode": body.mode}, "intake")
+    _start(request.app.state.runner, thread_id, {"question": body.question, "user_context": body.context, "mode": body.mode})
     return Accepted(thread_id=thread_id)
 
 
 @app.get("/api/decisions", response_model=SessionList, tags=["decisions"])
-def list_decisions(limit: int = 20):
-    """Recent sessions, newest first (from decision_sessions, so only sessions saved with PERSIST_RESULTS=true)."""
+def list_decisions(limit: int = 20, mode: Literal["full", "quick"] | None = None):
+    """Recent sessions, newest first (from decision_sessions, so only sessions saved with PERSIST_RESULTS=true).
+    mode=quick lists only patient chats, mode=full only admin sessions; no mode lists all."""
     try:
-        rows = list_sessions(limit=max(1, min(limit, 100)))
+        rows = list_sessions(limit=max(1, min(limit, 100)), mode=mode)
     except Exception as exc:                        # noqa: BLE001 - the list is a convenience; sessions still work by URL
         logging.getLogger(__name__).exception("could not list sessions")
         raise ApiError(503, "database_unavailable", f"Could not read the session list: {type(exc).__name__}.") from exc
@@ -195,6 +199,7 @@ def list_decisions(limit: int = 20):
         SessionSummary(
             thread_id=r.thread_id,
             question=r.question,
+            mode=r.mode,
             condition_name=r.condition_name,
             status=r.status,
             red_flag_count=len(r.red_flags or []),

@@ -8,6 +8,7 @@
            ├─(request_clarification)──► clarification
            └─(proceed / insufficient_evidence)──► evidence_checker ─┬─(material gap, loop allowed)─► research
                                                                     └──────────────────────────────► human_review (interrupt)
+                                                                    └─(quick mode: no review pause)─► final_report
     human_review ─┬─(approve / select_plan)──► final_report → completion → END
                   ├─(reject / request_debate_round)──► proposer
                   └─(request_more_research / modify_profile / add_context)──► research
@@ -15,6 +16,11 @@
                                                                  └─(permanent)─────► completion (status failed)
 
 Every edge is "guarded": if the state carries an error, the graph goes to error_recovery first.
+
+Quick mode (patient chat, state["mode"] == "quick"): same nodes, but no red-flag pause (pending_red_flags is
+empty), no loops (quick settings: max 1 debate round, 0 research retries) and no human review pause. Unless
+QUICK_DOUBLE_CHECK=true, the two double-check agents are skipped too, to keep onboarding near 30 seconds:
+    research → proposer → judge → final_report → completion
 """
 
 from typing import Callable, Literal
@@ -22,6 +28,7 @@ from typing import Callable, Literal
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
+from ai_decision_arena.config import get_settings
 from ai_decision_arena.nodes.clarification import await_clarification_node, clarification_node
 from ai_decision_arena.nodes.critic import critic_node
 from ai_decision_arena.nodes.error_recovery import error_recovery_node, recoverable
@@ -72,19 +79,31 @@ def route_after_red_flag_ack(state: ArenaState) -> Literal["clarification", "res
     return "research" if state.get("red_flag_resume_to") == "research" else "clarification"
 
 
-def route_after_judge(state: ArenaState) -> Literal["research", "clarification", "evidence_checker"]:
+def skips_double_check(state: ArenaState) -> bool:
+    """Quick sessions skip the Critic and the Evidence Checker unless QUICK_DOUBLE_CHECK=true."""
+    return state.get("mode") == "quick" and not get_settings().quick_double_check
+
+
+def route_after_proposer(state: ArenaState) -> Literal["critic", "judge"]:
+    return "judge" if skips_double_check(state) else "critic"
+
+
+def route_after_judge(state: ArenaState) -> Literal["research", "clarification", "evidence_checker", "final_report"]:
     # The Judge node already applied the loop limits; here we only read its decision.
     decision = (state.get("verdict") or {}).get("decision")
     if decision == "request_more_research":
         return "research"
     if decision == "request_clarification":
         return "clarification"
-    return "evidence_checker"   # proceed or insufficient_evidence
+    # proceed or insufficient_evidence
+    return "final_report" if skips_double_check(state) else "evidence_checker"
 
 
-def route_after_evidence_checker(state: ArenaState) -> Literal["research", "human_review"]:
+def route_after_evidence_checker(state: ArenaState) -> Literal["research", "human_review", "final_report"]:
     decision = (state.get("checker_verdict") or {}).get("decision")
-    return "research" if decision == "request_more_research" else "human_review"
+    if decision == "request_more_research":
+        return "research"
+    return "final_report" if state.get("mode") == "quick" else "human_review"
 
 
 def route_after_human_review(state: ArenaState) -> Literal["final_report", "proposer", "research"]:
@@ -124,10 +143,10 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     connect("clarification", route_after_clarification, ["await_clarification", "await_red_flag_ack", "research"])
     connect("await_clarification", "clarification", ["clarification"])          # re-evaluate after answers
     connect("research", "proposer", ["proposer"])
-    connect("proposer", "critic", ["critic"])
+    connect("proposer", route_after_proposer, ["critic", "judge"])
     connect("critic", "judge", ["judge"])
-    connect("judge", route_after_judge, ["research", "clarification", "evidence_checker"])
-    connect("evidence_checker", route_after_evidence_checker, ["research", "human_review"])
+    connect("judge", route_after_judge, ["research", "clarification", "evidence_checker", "final_report"])
+    connect("evidence_checker", route_after_evidence_checker, ["research", "human_review", "final_report"])
     connect("human_review", route_after_human_review, ["final_report", "proposer", "research"])
     connect("final_report", "completion", ["completion"])
     builder.add_conditional_edges("error_recovery", route_after_error_recovery,

@@ -8,6 +8,9 @@ Two kinds of failure, two kinds of retry:
    If the output was cut off at max_tokens, it asks for a shorter answer instead
    (without re-sending the truncated text).
 If both are exhausted, the error is raised for the graph's Error Recovery node.
+
+In a quick (patient chat) session the model comes from settings.quick_model and every system prompt
+gets QUICK_MODE_NOTE: shorter answers are the main lever for speed (output tokens take the time).
 """
 
 from functools import lru_cache
@@ -32,16 +35,28 @@ class LLMOutputError(Exception):
         super().__init__(f"{schema_name}: invalid output after {attempts} attempt(s): {last_error}")
 
 
-@lru_cache
-def get_llm(max_tokens: int | None = None) -> ChatAnthropic:
-    """One ChatAnthropic client per max_tokens value, reused across calls."""
+QUICK_MODE_NOTE = """
+Speed mode (a patient is waiting for this): keep every text field to one short sentence, keep lists to at
+most 3 items, and when the instructions give a range (e.g. "5-6 questions") use the lower end. A QUICK SESSION
+rule in the instructions overrides this note."""
+
+
+def get_llm(max_tokens: int | None = None, model: str | None = None) -> ChatAnthropic:
+    """The client for the active session mode (see config.session_mode); `model` overrides the mode's model."""
     settings = get_settings()
+    return _client(model or settings.anthropic_model, max_tokens or settings.llm_max_tokens,
+                   settings.llm_timeout_seconds, settings.llm_max_retries)
+
+
+@lru_cache
+def _client(model: str, max_tokens: int, timeout: float, max_retries: int) -> ChatAnthropic:
+    """One ChatAnthropic client per combination, reused across calls."""
     return ChatAnthropic(
-        model=settings.anthropic_model,
-        api_key=settings.anthropic_api_key,       # SecretStr is accepted directly
-        max_tokens=max_tokens or settings.llm_max_tokens,
-        timeout=settings.llm_timeout_seconds,
-        max_retries=settings.llm_max_retries,     # SDK backoff for transient API errors
+        model=model,
+        api_key=get_settings().anthropic_api_key,  # SecretStr is accepted directly
+        max_tokens=max_tokens,
+        timeout=timeout,
+        max_retries=max_retries,                   # SDK backoff for transient API errors
     )
 
 
@@ -58,6 +73,8 @@ def call_structured(
     Raises LLMOutputError if the output is still invalid after the retry budget.
     """
     settings = get_settings()
+    if settings.session_mode == "quick":
+        system_prompt += "\n" + QUICK_MODE_NOTE
     structured_llm = get_llm(max_tokens).with_structured_output(
         schema,
         method="json_schema",   # Anthropic native structured outputs

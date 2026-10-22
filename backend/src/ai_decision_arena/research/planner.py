@@ -1,4 +1,7 @@
-"""Query planning: Claude turns the clarified case into targeted searches for all three lanes."""
+"""Query planning: Claude turns the clarified case into targeted searches for all three lanes.
+
+Quick (patient chat) sessions skip the Claude call and use fixed query templates with the condition name:
+it saves a few seconds, and two broad queries per lane are enough for a short summary."""
 
 import json
 
@@ -38,8 +41,29 @@ Rules:
 LANE_ORDER = {p: i for i, p in enumerate(PERSPECTIVES)}
 
 
+QUICK_QUERY = {
+    "research": ("{term} diet exercise and medication systematic review", "medications_treatment"),
+    "doctor": ("{term} management guidelines daily routine diet medication", "routine_lifestyle"),
+    "patient": ("{term} what worked for you diet routine experience", "routine_lifestyle"),
+}
+
+
+def quick_plan(state: ArenaState) -> ResearchPlan:
+    """No LLM: one broad management query + the outlook query per lane."""
+    term = (state.get("condition_name") or "").replace("(undiagnosed)", "").strip() or state.get("question", "")[:80]
+    queries = []
+    for perspective in PERSPECTIVES:
+        query, topic = QUICK_QUERY[perspective]
+        queries.append(SearchQuery(query=query.format(term=term), perspective=perspective, topic=topic, preferred_domains=[]))
+        queries.append(SearchQuery(query=OUTLOOK_QUERY[perspective].format(term=term), perspective=perspective,
+                                   topic="overview_prevalence", preferred_domains=[]))
+    return ResearchPlan(search_term=term, queries=queries)
+
+
 def plan_queries(state: ArenaState, focus: list[str] | None = None) -> ResearchPlan:
     settings = get_settings()
+    if settings.session_mode == "quick" and focus is None:
+        return quick_plan(state)
     per_lane = settings.queries_per_perspective
     user_content = f"""{user_case_block(state)}
 <focus>{json.dumps(focus or [], indent=2)}</focus>"""
