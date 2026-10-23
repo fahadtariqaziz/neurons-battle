@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { useDecision } from "@/hooks/useDecision";
 import { useFetch } from "@/hooks/useFetch";
 import { useNow } from "@/hooks/useNow";
+import { useStartChat } from "@/hooks/useStartChat";
 import { useStoredList } from "@/hooks/useStoredList";
 import { ApiError, getChat, resumeDecision, sendChatMessage } from "@/lib/api/client";
 import type { ChatMessage, ClarificationPayload } from "@/lib/api/types";
@@ -27,9 +28,20 @@ import { WorkingChip } from "./WorkingChip";
 const POLL_MS = 1000; // onboarding takes ~30 s: poll a bit faster than the admin view so the chip feels live
 const SKIPPED = "(skipped by user)"; // what the backend stores for an unanswered question
 
+// Shown when intake decided the first message isn't about health (e.g. "can i do fun").
+const OFF_TOPIC_REPLY = `I'm your health support companion, so that's not something I can help with. What I can do is support you in feeling better, with:
+
+- **what doctors recommend** for your condition
+- **what other patients** found helpful in their daily life
+- **the right diet and exercise**, based on doctors' advice and research
+
+Tell me what's going on with your health, for example "I have type 2 diabetes" or "I get migraines a few times a week".`;
+
 export function ChatView({ threadId }: { threadId: string }) {
   const { status, error: statusError, refresh } = useDecision(threadId, POLL_MS);
   const { refresh: refreshList } = useChatList();
+  // A first message that wasn't about health: the next message starts a fresh chat in its place.
+  const { start: startOver, sending: startingOver, error: startOverError } = useStartChat({ replace: true });
 
   // Transcript: re-fetched whenever the onboarding moves on (paused / finished / new answers / report).
   const version = status
@@ -146,6 +158,7 @@ export function ChatView({ threadId }: { threadId: string }) {
   const running = status.run_state === "running" || status.run_state === "interrupted" || submitting || waitingAfterSend;
   const finished = status.run_state === "finished";
   const failed = finished && !status.has_report;
+  const offTopic = failed && status.error?.code === "invalid_input";
   const isAdminSession = chat?.mode === "full";
   const answered = chat?.clarifications ?? [];
 
@@ -169,6 +182,16 @@ export function ChatView({ threadId }: { threadId: string }) {
         }
       />
     );
+  } else if (offTopic) {
+    composer = (
+      <Composer
+        key="start-over"
+        onSend={startOver}
+        disabled={startingOver}
+        autoFocus
+        placeholder="Tell me about your health, e.g. “I have sugar”"
+      />
+    );
   } else if (ready) {
     composer = <Composer key="chat" onSend={sendMessage} disabled={streaming !== null} autoFocus placeholder="Ask anything about your health" />;
   } else {
@@ -190,7 +213,8 @@ export function ChatView({ threadId }: { threadId: string }) {
             </p>
           ) : (
             <>
-              <OnboardingBanner done={ready} />
+              {!offTopic && <OnboardingBanner done={ready} />}
+              {offTopic && <AssistantMessage text={OFF_TOPIC_REPLY} />}
 
               {/* Questions already answered (stored in the session) */}
               {answered.map(({ question, answer: a }) => (
@@ -227,7 +251,7 @@ export function ChatView({ threadId }: { threadId: string }) {
                 />
               )}
 
-              {failed && (
+              {failed && !offTopic && (
                 <div className="space-y-2 text-neutral-200">
                   <p>I&apos;m sorry, something went wrong while I was reading up on your situation.</p>
                   {status.error && <p className="text-xs text-neutral-500">{status.error.message}</p>}
@@ -251,7 +275,9 @@ export function ChatView({ threadId }: { threadId: string }) {
             </>
           )}
 
-          {(actionError || chatError) && <p className="text-sm text-red-300">{actionError ?? chatError?.message}</p>}
+          {(actionError || startOverError || chatError) && (
+            <p className="text-sm text-red-300">{actionError ?? startOverError ?? chatError?.message}</p>
+          )}
           <div ref={endRef} />
         </div>
       </div>

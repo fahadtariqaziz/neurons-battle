@@ -10,11 +10,16 @@ On a follow-up pass (Judge asked for more research or new clarification), only t
 questions are searched and new evidence is APPENDED; ids continue (ev_021, ...).
 research_retry_count is incremented by the Judge node when it sends the graph back here,
 not by this node (the first pass is not a retry).
+
+Quick mode (patient chat): if the first pass found fewer than `min_patient_stories` patient stories, ONE extra
+patient search runs right away (patient lane only). Onboarding is the only time we research, and the chat
+shares those stories as examples later.
 """
 
+from ai_decision_arena.config import get_settings
 from ai_decision_arena.progress import report
 from ai_decision_arena.research.extractor import extract_evidence
-from ai_decision_arena.research.planner import plan_queries
+from ai_decision_arena.research.planner import PATIENT_STORY_QUERIES, patient_story_query, plan_queries
 from ai_decision_arena.research.search import run_searches
 from ai_decision_arena.research.sources import normalize_url
 from ai_decision_arena.schemas import PERSPECTIVES, PERSPECTIVE_LABELS, SearchHit
@@ -30,6 +35,23 @@ def _focus_for_follow_up(state: ArenaState) -> list[str] | None:
     if not focus:   # defensive: should not happen, fall back to the Judge's open questions
         focus = list((state.get("verdict") or {}).get("required_evidence", []))
     return focus or None
+
+
+def _patient_stories(evidence: list[dict]) -> int:
+    return sum(1 for e in evidence if e["perspective"] == "patient" and e.get("patient_context"))
+
+
+def _top_up_patient_stories(state: ArenaState, term: str, evidence: list[dict], known: set[str]) -> dict | None:
+    """One more patient-lane search + extraction when the first pass found too few stories. None if nothing new."""
+    query = patient_story_query(term, PATIENT_STORY_QUERIES[1])
+    report("research", f"only {_patient_stories(evidence)} patient stories; one more patient search")
+    hits, failures = run_searches([query])
+    hits = [h for h in hits if normalize_url(h.url) not in known]
+    if not hits:
+        return None
+    out = extract_evidence(state, {"patient": hits}, start_number=len(evidence) + 1)
+    out["query"] = f"[patient] {query.query}"
+    return out
 
 
 def research_node(state: ArenaState) -> dict:
@@ -59,6 +81,20 @@ def research_node(state: ArenaState) -> dict:
     else:
         out = {"evidence": [], "rejected": [], "conflicts": [], "gaps": [], "summaries": {}}
     gaps += out["gaps"]
+    queries_run = list(queries)
+
+    settings = get_settings()
+    new_evidence = existing + out["evidence"]
+    if settings.session_mode == "quick" and not focus and _patient_stories(new_evidence) < settings.min_patient_stories:
+        known |= {normalize_url(h.url) for h in hits}
+        extra = _top_up_patient_stories(state, plan.search_term, new_evidence, known)
+        if extra:
+            queries_run.append(extra["query"])
+            for key in ("evidence", "rejected", "conflicts"):
+                out[key] = out[key] + extra[key]
+            gaps += extra["gaps"]
+            if "patient" not in out["summaries"] and "patient" in extra["summaries"]:
+                out["summaries"]["patient"] = extra["summaries"]["patient"]
 
     # Summaries: per lane (merged with earlier passes) and one combined text for printing.
     summaries = dict(state.get("perspective_summaries", {}))
@@ -67,7 +103,7 @@ def research_node(state: ArenaState) -> dict:
     combined = "\n\n".join(f"## {PERSPECTIVE_LABELS[p]}\n{summaries[p]}" for p in PERSPECTIVES if p in summaries)
 
     return {
-        "research_queries": list(state.get("research_queries", [])) + queries,
+        "research_queries": list(state.get("research_queries", [])) + queries_run,
         "evidence": existing + out["evidence"],
         "rejected_sources": list(state.get("rejected_sources", [])) + out["rejected"],
         "conflicting_claims": list(state.get("conflicting_claims", [])) + out["conflicts"],

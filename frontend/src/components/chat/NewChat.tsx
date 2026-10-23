@@ -4,12 +4,9 @@
 // Sending creates a quick session (the patient chat flavour of the graph) and opens its page.
 
 import { Activity, Brain, HeartPulse, Moon } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useLayoutEffect, useState } from "react";
 
-import { ApiError, createDecision } from "@/lib/api/client";
+import { useStartChat } from "@/hooks/useStartChat";
 
-import { useChatList } from "./ChatListContext";
 import { Composer } from "./Composer";
 
 const EXAMPLES = [
@@ -20,33 +17,7 @@ const EXAMPLES = [
 ];
 
 export function NewChat() {
-  const router = useRouter();
-  const { refresh } = useChatList();
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Next keeps this page alive (hidden) after we navigate to the new chat. Reset when it's hidden, so
-  // "New chat" shows a usable screen instead of the disabled "sending" state.
-  useLayoutEffect(() => {
-    return () => {
-      setSending(false);
-      setError(null);
-    };
-  }, []);
-
-  async function start(text: string) {
-    if (sending) return;
-    setSending(true);
-    setError(null);
-    try {
-      const { thread_id } = await createDecision({ question: text, mode: "quick" });
-      refresh();
-      router.push(`/c/${thread_id}`);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Something went wrong. Please try again.");
-      setSending(false);
-    }
-  }
+  const { start, sending, error } = useStartChat();
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 pb-[12vh]">

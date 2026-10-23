@@ -70,6 +70,11 @@ Every source must be either kept or rejected.
 """ + SAFETY_RULES
 
 
+def lane_extra(perspective: str) -> int:
+    """The patient lane may keep a few more sources: its stories become the chat's patient examples."""
+    return get_settings().patient_lane_extra if perspective == "patient" else 0
+
+
 def select_hits(hits: list[SearchHit], limit: int) -> list[SearchHit]:
     """Round-robin across queries (best first within each), so every query/topic is
     represented instead of only the globally highest Tavily scores."""
@@ -125,7 +130,8 @@ def _quote_is_real(excerpt: str, snippet: str) -> bool:
 
 def _extract_lane(state: ArenaState, perspective: str, hits: list[SearchHit]) -> tuple[list[SearchHit], ExtractionResult]:
     """One LLM call for one lane. Returns the hits actually shown (indexes refer to this list)."""
-    hits = select_hits(hits, get_settings().max_hits_per_perspective)
+    settings = get_settings()
+    hits = select_hits(hits, settings.max_hits_per_perspective + lane_extra(perspective))
     user_content = f"""{user_case_block(state)}
 
 <sources>
@@ -172,7 +178,7 @@ def extract_evidence(
         for item in sorted(result.evidence, key=lambda e: e.relevance_score, reverse=True):
             if item.source_index >= len(shown) or item.source_index in used:
                 continue   # invalid or duplicate index from the LLM: ignore
-            if kept_here >= settings.max_evidence_per_perspective:
+            if kept_here >= settings.max_evidence_per_perspective + lane_extra(perspective):
                 break
             hit = shown[item.source_index]
             used.add(item.source_index)

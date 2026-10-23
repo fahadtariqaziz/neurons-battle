@@ -64,6 +64,8 @@ QUICK_OVERRIDES = {
     "max_results_per_query": 3,
     "max_hits_per_perspective": 4,          # extraction is the slowest step: fewer sources = less output
     "max_evidence_per_perspective": 4,
+    "patient_lane_extra": 2,                # patient lane: 6 hits / 6 evidence, real stories for the chat's examples
+    "min_patient_stories": 2,               # fewer after research → one more patient search (only then, ~10 s)
     "max_excerpt_chars": 600,
     "tavily_search_depth": "basic",         # (the patient lane keeps "advanced": basic forum snippets were too
                                             # short and the patient lane ended up with no plan, tested 2026-10-22)
@@ -106,6 +108,10 @@ class Settings(BaseSettings):
     max_results_per_query: int = Field(default=5, ge=1, le=20)
     max_hits_per_perspective: int = Field(default=12, ge=3, le=30, description="Hits sent to the extractor per lane.")
     max_evidence_per_perspective: int = Field(default=10, ge=1, le=30)
+    patient_lane_extra: int = Field(default=0, ge=0, le=10, description="Extra hits AND evidence for the patient lane "
+                                                                        "(patient stories feed the chat's examples).")
+    min_patient_stories: int = Field(default=0, ge=0, le=5, description="Quick mode: fewer patient stories than this "
+                                                                        "after research → one extra patient search.")
     max_excerpt_chars: int = Field(default=2000, ge=200, le=2000)   # Evidence.relevant_excerpt max_length
     tavily_search_depth: Literal["basic", "advanced"] = "basic"      # advanced = better snippets, 2x credits
     tavily_patient_search_depth: Literal["basic", "advanced"] = "advanced"   # forum snippets are short with basic

@@ -97,6 +97,8 @@ def list_sessions(limit: int = 20, mode: str | None = None) -> list[DecisionSess
     query = select(DecisionSession).order_by(DecisionSession.created_at.desc()).limit(limit)
     if mode:
         query = query.where(DecisionSession.mode == mode)
+    if mode == "quick":   # chats whose first message intake rejected (not about health): nothing to reopen
+        query = query.where(~((DecisionSession.status == "failed") & DecisionSession.condition_name.is_(None)))
     with session_factory()() as db:
         return list(db.execute(query).scalars())
 

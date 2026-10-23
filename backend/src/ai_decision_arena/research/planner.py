@@ -1,7 +1,8 @@
 """Query planning: Claude turns the clarified case into targeted searches for all three lanes.
 
 Quick (patient chat) sessions skip the Claude call and use fixed query templates with the condition name:
-it saves a few seconds, and two broad queries per lane are enough for a short summary."""
+it saves a few seconds, and two broad queries per lane are enough for a short summary. The patient lane gets
+a third, story-style query: real experiences become the examples the chat agent shares later."""
 
 import json
 
@@ -57,7 +58,20 @@ def quick_plan(state: ArenaState) -> ResearchPlan:
         queries.append(SearchQuery(query=query.format(term=term), perspective=perspective, topic=topic, preferred_domains=[]))
         queries.append(SearchQuery(query=OUTLOOK_QUERY[perspective].format(term=term), perspective=perspective,
                                    topic="overview_prevalence", preferred_domains=[]))
+    queries.append(patient_story_query(term, PATIENT_STORY_QUERIES[0]))
     return ResearchPlan(search_term=term, queries=queries)
+
+
+# Story-style patient searches: [0] runs in every quick plan, [1] only as the top-up when too few stories came back.
+PATIENT_STORY_QUERIES = (
+    "{term} my experience what helped me forum",
+    "{term} personal story lifestyle changes that worked reddit",
+)
+
+
+def patient_story_query(term: str, template: str) -> SearchQuery:
+    return SearchQuery(query=template.format(term=term), perspective="patient", topic="routine_lifestyle",
+                       preferred_domains=[])
 
 
 def plan_queries(state: ArenaState, focus: list[str] | None = None) -> ResearchPlan:
